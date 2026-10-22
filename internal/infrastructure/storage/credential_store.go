@@ -12,29 +12,28 @@ import (
 // CredentialConfig represents the persistent configuration stored in ~/.spectest/credentials.yaml
 // or ./.spectestrc.yaml.
 type CredentialConfig struct {
-	DefaultProvider string                       `yaml:"default_provider"`
+	DefaultProvider string                       `yaml:"default_provider,omitempty"`
 	DefaultModel    string                       `yaml:"default_model,omitempty"`
-	Providers       map[string]ProviderCredEntry `yaml:"providers"`
+	Providers       map[string]ProviderCredEntry `yaml:"providers,omitempty"`
 }
 
-// ProviderCredEntry holds credentials and custom endpoint settings for a specific LLM provider.
+// ProviderCredEntry holds credentials and endpoint settings for a specific LLM provider.
 type ProviderCredEntry struct {
 	APIKey   string `yaml:"api_key,omitempty"`
 	Endpoint string `yaml:"endpoint,omitempty"`
 	Model    string `yaml:"model,omitempty"`
 }
 
-// FileCredentialStore implements domain.CredentialStore using the 4-tier resolution hierarchy:
-// 1. Environment variables (SPECTEST_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY)
+// FileCredentialStore implements domain.CredentialStore using a 3-tier resolution hierarchy:
+// 1. Environment variables (SPECTEST_*, <PROVIDER>_*)
 // 2. Repository local config (./.spectestrc.yaml)
 // 3. Global user config (~/.spectest/credentials.yaml with 0600 permissions)
-// 4. Default fallbacks
 type FileCredentialStore struct {
 	globalPath string
 	localPath  string
 }
 
-// NewFileCredentialStore creates a FileCredentialStore with default paths.
+// NewFileCredentialStore creates a FileCredentialStore with standard config paths.
 func NewFileCredentialStore() *FileCredentialStore {
 	home, err := os.UserHomeDir()
 	globalPath := ".spectest/credentials.yaml"
@@ -47,7 +46,7 @@ func NewFileCredentialStore() *FileCredentialStore {
 	}
 }
 
-// NewFileCredentialStoreWithPath creates a store with custom paths (useful for testing).
+// NewFileCredentialStoreWithPath creates a store with custom paths (used in tests).
 func NewFileCredentialStoreWithPath(globalPath, localPath string) *FileCredentialStore {
 	return &FileCredentialStore{
 		globalPath: globalPath,
@@ -79,8 +78,7 @@ func (s *FileCredentialStore) loadOrInitGlobal() *CredentialConfig {
 	cfg, err := s.loadConfig(s.globalPath)
 	if err != nil || cfg == nil {
 		return &CredentialConfig{
-			DefaultProvider: "gemini",
-			Providers:       make(map[string]ProviderCredEntry),
+			Providers: make(map[string]ProviderCredEntry),
 		}
 	}
 	return cfg
@@ -101,7 +99,7 @@ func (s *FileCredentialStore) saveGlobal(cfg *CredentialConfig) error {
 	return os.Chmod(s.globalPath, 0o600)
 }
 
-// GetAPIKey resolves the API key for a provider following the 4-tier priority hierarchy.
+// GetAPIKey resolves the API key for a provider.
 func (s *FileCredentialStore) GetAPIKey(provider string) (string, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
@@ -112,16 +110,8 @@ func (s *FileCredentialStore) GetAPIKey(provider string) (string, error) {
 	if key := os.Getenv("SPECTEST_API_KEY"); key != "" {
 		return key, nil
 	}
-	switch provider {
-	case "gemini":
-		if key := os.Getenv("GEMINI_API_KEY"); key != "" {
-			return key, nil
-		}
-		if key := os.Getenv("GOOGLE_API_KEY"); key != "" {
-			return key, nil
-		}
-	case "openai", "custom":
-		if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+	if provider != "" {
+		if key := os.Getenv(strings.ToUpper(provider) + "_API_KEY"); key != "" {
 			return key, nil
 		}
 	}
@@ -147,7 +137,10 @@ func (s *FileCredentialStore) GetAPIKey(provider string) (string, error) {
 func (s *FileCredentialStore) SetAPIKey(provider, key string) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
-		provider = "gemini"
+		provider = s.GetDefaultProvider()
+	}
+	if provider == "" {
+		return fmt.Errorf("provider must be configured before setting api-key")
 	}
 	cfg := s.loadOrInitGlobal()
 	entry := cfg.Providers[provider]
@@ -163,12 +156,12 @@ func (s *FileCredentialStore) GetEndpoint(provider string) (string, error) {
 		provider = s.GetDefaultProvider()
 	}
 
-	// Tier 1: Environment variable
+	// Tier 1: Environment variables
 	if ep := os.Getenv("SPECTEST_ENDPOINT"); ep != "" {
 		return ep, nil
 	}
-	if provider == "ollama" {
-		if ep := os.Getenv("OLLAMA_HOST"); ep != "" {
+	if provider != "" {
+		if ep := os.Getenv(strings.ToUpper(provider) + "_ENDPOINT"); ep != "" {
 			return ep, nil
 		}
 	}
@@ -187,9 +180,6 @@ func (s *FileCredentialStore) GetEndpoint(provider string) (string, error) {
 		}
 	}
 
-	if provider == "ollama" {
-		return "http://localhost:11434", nil
-	}
 	return "", nil
 }
 
@@ -199,6 +189,9 @@ func (s *FileCredentialStore) SetEndpoint(provider, endpoint string) error {
 	if provider == "" {
 		provider = s.GetDefaultProvider()
 	}
+	if provider == "" {
+		return fmt.Errorf("provider must be configured before setting endpoint")
+	}
 	cfg := s.loadOrInitGlobal()
 	entry := cfg.Providers[provider]
 	entry.Endpoint = strings.TrimSpace(endpoint)
@@ -206,46 +199,73 @@ func (s *FileCredentialStore) SetEndpoint(provider, endpoint string) error {
 	return s.saveGlobal(cfg)
 }
 
-// GetDefaultProvider returns the active default provider.
+// GetDefaultProvider returns the configured default provider, or empty string if unset.
 func (s *FileCredentialStore) GetDefaultProvider() string {
 	if p := os.Getenv("SPECTEST_PROVIDER"); p != "" {
-		return strings.ToLower(p)
+		return strings.ToLower(strings.TrimSpace(p))
 	}
 	if localCfg, err := s.loadConfig(s.localPath); err == nil && localCfg != nil && localCfg.DefaultProvider != "" {
-		return localCfg.DefaultProvider
+		return strings.ToLower(strings.TrimSpace(localCfg.DefaultProvider))
 	}
 	if globalCfg, err := s.loadConfig(s.globalPath); err == nil && globalCfg != nil && globalCfg.DefaultProvider != "" {
-		return globalCfg.DefaultProvider
+		return strings.ToLower(strings.TrimSpace(globalCfg.DefaultProvider))
 	}
-	return "gemini"
+	return ""
 }
 
 // SetDefaultProvider sets the default LLM provider in ~/.spectest/credentials.yaml.
 func (s *FileCredentialStore) SetDefaultProvider(provider string) error {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return fmt.Errorf("provider cannot be empty")
+	}
 	cfg := s.loadOrInitGlobal()
-	cfg.DefaultProvider = strings.ToLower(strings.TrimSpace(provider))
+	cfg.DefaultProvider = provider
 	return s.saveGlobal(cfg)
 }
 
-// GetDefaultModel returns the configured default model for a provider.
+// GetDefaultModel returns the configured model for a provider, or empty string if unset.
 func (s *FileCredentialStore) GetDefaultModel(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
 	if m := os.Getenv("SPECTEST_MODEL"); m != "" {
-		return m
+		return strings.TrimSpace(m)
 	}
-	cfg := s.loadOrInitGlobal()
-	if entry, ok := cfg.Providers[provider]; ok && entry.Model != "" {
-		return entry.Model
+	if provider != "" {
+		if m := os.Getenv(strings.ToUpper(provider) + "_MODEL"); m != "" {
+			return strings.TrimSpace(m)
+		}
 	}
-	return cfg.DefaultModel
+	if localCfg, err := s.loadConfig(s.localPath); err == nil && localCfg != nil {
+		if entry, ok := localCfg.Providers[provider]; ok && entry.Model != "" {
+			return entry.Model
+		}
+		if localCfg.DefaultModel != "" {
+			return localCfg.DefaultModel
+		}
+	}
+	if globalCfg, err := s.loadConfig(s.globalPath); err == nil && globalCfg != nil {
+		if entry, ok := globalCfg.Providers[provider]; ok && entry.Model != "" {
+			return entry.Model
+		}
+		if globalCfg.DefaultModel != "" {
+			return globalCfg.DefaultModel
+		}
+	}
+	return ""
 }
 
-// SetDefaultModel sets the default model in ~/.spectest/credentials.yaml.
+// SetDefaultModel sets the model for a provider in ~/.spectest/credentials.yaml.
 func (s *FileCredentialStore) SetDefaultModel(provider, model string) error {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return fmt.Errorf("model cannot be empty")
+	}
 	cfg := s.loadOrInitGlobal()
-	cfg.DefaultModel = strings.TrimSpace(model)
+	cfg.DefaultModel = model
 	if provider != "" {
 		entry := cfg.Providers[provider]
-		entry.Model = strings.TrimSpace(model)
+		entry.Model = model
 		cfg.Providers[provider] = entry
 	}
 	return s.saveGlobal(cfg)
