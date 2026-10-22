@@ -55,7 +55,7 @@ SpecTest adheres strictly to **Clean Architecture / Hexagonal Ports & Adapters**
 
 * **Domain (`internal/domain/`)**: Pure Go definitions of structs and interfaces. **Zero external imports!**
 * **UseCase (`internal/usecase/`)**: Orchestrates business rules (`generate`, `run`, `update`). Only depends on `internal/domain`.
-* **Adapter (`internal/adapter/`)**: Interacts with the user (`cli/`, `httpui/`) and formats output (`presenter/`: Lipgloss TUI, JUnit XML, HTML report).
+* **Adapter (`internal/adapter/`)**: Interacts with the user (`cli/`, `httpui/`) and formats output (`presenter/`: JUnit XML, HTML report).
 * **Infrastructure (`internal/infrastructure/`)**: Implements Domain interfaces for external systems (LLM providers, HTTP engine, Docker, OpenAPI parser/differ, file storage).
 
 ### 3. Commit Message Format

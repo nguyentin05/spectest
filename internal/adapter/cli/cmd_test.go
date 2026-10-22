@@ -41,6 +41,19 @@ func TestSpectestCmd_Version(t *testing.T) {
 	}
 }
 
+func TestConfigSet_RejectsPlaintextAPIKeyArg(t *testing.T) {
+	cmd := NewSpectestCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"config", "set", "api-key", "sk-plaintext-leak"})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "do not pass api-key on the command line") {
+		t.Errorf("expected error rejecting plaintext api-key argument, got: %v", err)
+	}
+}
+
 func TestGenerateCmd_MissingAPIFlag(t *testing.T) {
 	cmd := NewSpectestCmd()
 	var out bytes.Buffer

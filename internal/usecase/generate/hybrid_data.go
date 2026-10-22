@@ -8,9 +8,8 @@ import (
 	"github.com/nguyentin05/spectest/internal/infrastructure/openapi"
 )
 
-// EnrichStepWithHybridData augments a mutating Step that has a request schema with
-// deterministic Go boundary fuzzing (`go_fuzzing`) and security (`go_security`) test cases
-// at zero token cost, combining them with valid and boundary business test cases.
+// EnrichStepWithHybridData augments an LLM-generated mutating Step with deterministic Go
+// boundary fuzzing (`go_fuzzing`) and security (`go_security`) test cases at zero token cost.
 func EnrichStepWithHybridData(step *domain.Step, op openapi.NormalizedOperation) {
 	if op.IsTokenProducer || op.RequestSchema == nil || len(op.RequestSchema.Properties) == 0 {
 		return
@@ -19,14 +18,7 @@ func EnrichStepWithHybridData(step *domain.Step, op openapi.NormalizedOperation)
 		return
 	}
 
-	basePayload := openapi.SynthesizeSamplePayload(*op.RequestSchema)
-	if m, ok := step.Request.Body.(map[string]interface{}); ok && len(m) > 0 {
-		basePayload = cloneMap(m)
-	}
-
-	if len(step.TestCases) == 0 {
-		step.TestCases = synthesizeBaselineTestCases(op, basePayload)
-	}
+	basePayload := extractBasePayload(step, *op.RequestSchema)
 
 	var propNames []string
 	for k := range op.RequestSchema.Properties {
@@ -82,44 +74,16 @@ func EnrichStepWithHybridData(step *domain.Step, op openapi.NormalizedOperation)
 	}
 }
 
-func synthesizeBaselineTestCases(op openapi.NormalizedOperation, basePayload map[string]interface{}) []domain.TestCase {
-	expectedValidStatus := 200
-	if _, has201 := op.ResponseSchemas["201"]; has201 {
-		expectedValidStatus = 201
+func extractBasePayload(step *domain.Step, schema openapi.SchemaObject) map[string]interface{} {
+	if m, ok := step.Request.Body.(map[string]interface{}); ok && len(m) > 0 {
+		return cloneMap(m)
 	}
-
-	cases := []domain.TestCase{
-		{
-			ID:      "TC_HAPPY_PATH",
-			Name:    fmt.Sprintf("Valid request payload for %s %s", op.Method, op.Endpoint),
-			Type:    "ai_business_valid",
-			Payload: cloneMap(basePayload),
-			Assert: domain.AssertionRule{
-				Status:      expectedValidStatus,
-				SchemaMatch: true,
-			},
-		},
-	}
-
-	// Check if any property defines a minimum constraint to generate a below-minimum boundary case
-	for propName, prop := range op.RequestSchema.Properties {
-		if (prop.Type == "integer" || prop.Type == "number") && prop.Minimum != nil {
-			boundaryPayload := cloneMap(basePayload)
-			boundaryPayload[propName] = *prop.Minimum - 1
-			cases = append(cases, domain.TestCase{
-				ID:      "TC_BOUNDARY_BELOW_MIN",
-				Name:    fmt.Sprintf("Boundary value below minimum constraint on field %q", propName),
-				Type:    "ai_business_boundary",
-				Payload: boundaryPayload,
-				Assert: domain.AssertionRule{
-					Status: 400,
-				},
-			})
-			break
+	for _, tc := range step.TestCases {
+		if m, ok := tc.Payload.(map[string]interface{}); ok && len(m) > 0 {
+			return cloneMap(m)
 		}
 	}
-
-	return cases
+	return openapi.SynthesizeSamplePayload(schema)
 }
 
 func hasCaseType(cases []domain.TestCase, caseType string) bool {

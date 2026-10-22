@@ -3,18 +3,23 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"io"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
+	"github.com/mattn/go-isatty"
 	"github.com/nguyentin05/spectest/internal/adapter/cli/cmdutil"
 	"github.com/nguyentin05/spectest/internal/infrastructure/storage"
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 )
 
 type initOptions struct {
 	provider string
 	model    string
 	endpoint string
-	apiKey   string
 }
 
 // NewCommand creates the `spectest config` command and its subcommands (`init`, `set`, `list`).
@@ -23,11 +28,13 @@ func NewCommand(f *cmdutil.Factory) *cobra.Command {
 		Use:     "config",
 		Short:   "Manage LLM credentials and global spectest configuration",
 		GroupID: "settings",
-		Long: `Configure LLM providers, endpoints, models, and API keys.
-Credentials are saved to ~/.spectest/credentials.yaml with strict file permissions (0600).`,
+		Long: `Configure LLM providers, endpoints, models, and API keys securely.
+Credentials are saved to ~/.spectest/credentials.yaml with strict file permissions (0600).
+API keys are read interactively with terminal echo disabled and are never passed via command-line flags.`,
 		Example: `  spectest config init
-  spectest config init --provider openai --endpoint https://api.openai.com/v1 --model gpt-4o-mini --api-key sk-...
+  spectest config init --provider openai --endpoint https://api.openai.com/v1 --model gpt-4o-mini
   spectest config set model qwen2.5-coder:7b
+  spectest config set api-key
   spectest config list`,
 	}
 
@@ -45,13 +52,15 @@ func newInitCmd(f *cmdutil.Factory) *cobra.Command {
 		Use:   "init",
 		Short: "Initialize LLM provider, endpoint, model, and API key configuration",
 		Example: `  spectest config init
-  spectest config init --provider openai --endpoint https://api.openai.com/v1 --model gpt-4o-mini --api-key sk-...
+  spectest config init --provider openai --endpoint https://api.openai.com/v1 --model gpt-4o-mini
   spectest config init --provider ollama --endpoint http://localhost:11434 --model qwen2.5-coder:7b`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := f.CredentialStore()
+			in := cmd.InOrStdin()
 			out := cmd.OutOrStdout()
+			reader := bufio.NewReader(in)
 
-			hasFlags := opts.provider != "" || opts.model != "" || opts.endpoint != "" || opts.apiKey != ""
+			hasFlags := opts.provider != "" || opts.model != "" || opts.endpoint != ""
 			if hasFlags {
 				prov := strings.ToLower(strings.TrimSpace(opts.provider))
 				if prov == "" {
@@ -73,22 +82,30 @@ func newInitCmd(f *cmdutil.Factory) *cobra.Command {
 						return err
 					}
 				}
-				if opts.apiKey != "" {
-					if err := store.SetAPIKey(prov, opts.apiKey); err != nil {
+				if isTerminalReader(in) {
+					currentKey, _ := store.GetAPIKey(prov)
+					fmt.Fprintf(out, "API Key [%s]: ", storage.MaskKey(currentKey))
+					key, err := readSecretLine(in, out, reader)
+					if err != nil {
 						return err
+					}
+					if key != "" {
+						if err := store.SetAPIKey(prov, key); err != nil {
+							return err
+						}
 					}
 				}
 				fmt.Fprintf(out, "Saved configuration for provider %q at %s (0600)\n", prov, store.GlobalPath())
 				return nil
 			}
 
-			// Interactive wizard when no flags are provided
-			reader := bufio.NewReader(cmd.InOrStdin())
-			fmt.Fprintln(out, "SpecTest Configuration Setup")
-
-			fmt.Fprint(out, "1. Provider name: ")
+			currentProv := store.GetDefaultProvider()
+			fmt.Fprintf(out, "LLM Provider [%s]: ", defaultLabel(currentProv))
 			prov, _ := reader.ReadString('\n')
 			prov = strings.ToLower(strings.TrimSpace(prov))
+			if prov == "" {
+				prov = currentProv
+			}
 			if prov == "" {
 				return fmt.Errorf("provider name is required")
 			}
@@ -96,7 +113,8 @@ func newInitCmd(f *cmdutil.Factory) *cobra.Command {
 				return err
 			}
 
-			fmt.Fprint(out, "2. Endpoint URL: ")
+			currentEP, _ := store.GetEndpoint(prov)
+			fmt.Fprintf(out, "Endpoint URL [%s]: ", defaultLabel(currentEP))
 			ep, _ := reader.ReadString('\n')
 			ep = strings.TrimSpace(ep)
 			if ep != "" {
@@ -105,7 +123,8 @@ func newInitCmd(f *cmdutil.Factory) *cobra.Command {
 				}
 			}
 
-			fmt.Fprint(out, "3. Model name: ")
+			currentModel := store.GetDefaultModel(prov)
+			fmt.Fprintf(out, "Model Name [%s]: ", defaultLabel(currentModel))
 			model, _ := reader.ReadString('\n')
 			model = strings.TrimSpace(model)
 			if model != "" {
@@ -114,9 +133,12 @@ func newInitCmd(f *cmdutil.Factory) *cobra.Command {
 				}
 			}
 
-			fmt.Fprint(out, "4. API Key (leave blank if not required): ")
-			key, _ := reader.ReadString('\n')
-			key = strings.TrimSpace(key)
+			currentKey, _ := store.GetAPIKey(prov)
+			fmt.Fprintf(out, "API Key [%s]: ", storage.MaskKey(currentKey))
+			key, err := readSecretLine(in, out, reader)
+			if err != nil {
+				return err
+			}
 			if key != "" {
 				if err := store.SetAPIKey(prov, key); err != nil {
 					return err
@@ -131,7 +153,6 @@ func newInitCmd(f *cmdutil.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.provider, "provider", "", "LLM provider identifier")
 	cmd.Flags().StringVar(&opts.model, "model", "", "Model name for the selected provider")
 	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "Base endpoint URL for the LLM API")
-	cmd.Flags().StringVar(&opts.apiKey, "api-key", "", "API key for the selected LLM provider")
 
 	return cmd
 }
@@ -139,14 +160,40 @@ func newInitCmd(f *cmdutil.Factory) *cobra.Command {
 func newSetCmd(f *cmdutil.Factory) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set [key] [value]",
-		Short: "Set a specific configuration key (provider, endpoint, model, api-key)",
-		Args:  cobra.ExactArgs(2),
+		Short: "Set a configuration key (provider, endpoint, model, or api-key)",
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := f.CredentialStore()
+			in := cmd.InOrStdin()
 			out := cmd.OutOrStdout()
 			key := strings.ToLower(strings.TrimSpace(args[0]))
-			val := strings.TrimSpace(args[1])
 			activeProv := store.GetDefaultProvider()
+
+			if key == "api-key" || key == "apikey" || key == "api_key" {
+				if len(args) > 1 {
+					return fmt.Errorf("for security, do not pass api-key on the command line; run 'spectest config set api-key' and enter it at the hidden prompt")
+				}
+				reader := bufio.NewReader(in)
+				currentKey, _ := store.GetAPIKey(activeProv)
+				fmt.Fprintf(out, "API Key [%s]: ", storage.MaskKey(currentKey))
+				secret, err := readSecretLine(in, out, reader)
+				if err != nil {
+					return err
+				}
+				if secret == "" {
+					return fmt.Errorf("api-key cannot be empty")
+				}
+				if err := store.SetAPIKey(activeProv, secret); err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "Saved api-key for provider %q (%s, 0600)\n", activeProv, storage.MaskKey(secret))
+				return nil
+			}
+
+			if len(args) < 2 {
+				return fmt.Errorf("missing value for key %q (usage: spectest config set %s <value>)", key, key)
+			}
+			val := strings.TrimSpace(args[1])
 
 			switch key {
 			case "provider", "default_provider":
@@ -154,11 +201,6 @@ func newSetCmd(f *cmdutil.Factory) *cobra.Command {
 					return err
 				}
 				fmt.Fprintf(out, "Set default provider = %q\n", val)
-			case "api-key", "apikey", "api_key":
-				if err := store.SetAPIKey(activeProv, val); err != nil {
-					return err
-				}
-				fmt.Fprintf(out, "Set api-key for provider %q = %s (0600)\n", activeProv, storage.MaskKey(val))
 			case "endpoint":
 				if err := store.SetEndpoint(activeProv, val); err != nil {
 					return err
@@ -188,21 +230,75 @@ func newListCmd(f *cmdutil.Factory) *cobra.Command {
 			key, _ := store.GetAPIKey(prov)
 			ep, _ := store.GetEndpoint(prov)
 			model := store.GetDefaultModel(prov)
-			if prov == "" {
-				prov = "[not set]"
-			}
-			if model == "" {
-				model = "[not set]"
-			}
-			if ep == "" {
-				ep = "[not set]"
-			}
 			fmt.Fprintln(out, "Active SpecTest Configuration:")
 			fmt.Fprintf(out, "  Config File      : %s\n", store.GlobalPath())
-			fmt.Fprintf(out, "  Default Provider : %s\n", prov)
-			fmt.Fprintf(out, "  Active Model     : %s\n", model)
-			fmt.Fprintf(out, "  Endpoint URL     : %s\n", ep)
+			fmt.Fprintf(out, "  Default Provider : %s\n", defaultLabel(prov))
+			fmt.Fprintf(out, "  Active Model     : %s\n", defaultLabel(model))
+			fmt.Fprintf(out, "  Endpoint URL     : %s\n", defaultLabel(ep))
 			fmt.Fprintf(out, "  API Key          : %s\n", storage.MaskKey(key))
 		},
 	}
+}
+
+func defaultLabel(val string) string {
+	if strings.TrimSpace(val) == "" {
+		return "None"
+	}
+	return val
+}
+
+func isTerminalReader(in io.Reader) bool {
+	f, ok := in.(*os.File)
+	return ok && isatty.IsTerminal(f.Fd())
+}
+
+// readSecretLine reads a line from in with terminal ECHO disabled when in is a TTY,
+// preventing sensitive API keys from appearing on the terminal screen.
+func readSecretLine(in io.Reader, out io.Writer, reader *bufio.Reader) (string, error) {
+	f, ok := in.(*os.File)
+	if !ok || !isatty.IsTerminal(f.Fd()) {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return "", err
+		}
+		return strings.TrimSpace(line), nil
+	}
+
+	fd := int(f.Fd())
+	oldState, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	if err != nil {
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil && readErr != io.EOF {
+			return "", readErr
+		}
+		return strings.TrimSpace(line), nil
+	}
+
+	newState := *oldState
+	newState.Lflag &^= unix.ECHO
+	newState.Lflag |= unix.ICANON | unix.ISIG
+	newState.Iflag |= unix.ICRNL
+	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &newState); err != nil {
+		return "", err
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer func() {
+		signal.Stop(sigCh)
+		_ = unix.IoctlSetTermios(fd, unix.TCSETS, oldState)
+		fmt.Fprintln(out)
+	}()
+	go func() {
+		if _, ok := <-sigCh; ok {
+			_ = unix.IoctlSetTermios(fd, unix.TCSETS, oldState)
+			os.Exit(130)
+		}
+	}()
+
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
 }

@@ -23,14 +23,14 @@ This project includes third-party open-source software components:
    - Repository: https://github.com/spf13/cobra
    - License: Apache License 2.0 / BSD-3-Clause License
 
-2. charmbracelet/lipgloss
-   - Repository: https://github.com/charmbracelet/lipgloss
-   - License: MIT License
-
-3. gopkg.in/yaml.v3
+2. gopkg.in/yaml.v3
    - Repository: https://github.com/go-yaml/yaml
    - License: MIT License / Apache License 2.0
 
-4. golang.org/x/sys
+3. golang.org/x/sys
    - Repository: https://cs.opensource.google/go/x/sys
    - License: BSD-3-Clause License
+
+4. mattn/go-isatty
+   - Repository: https://github.com/mattn/go-isatty
+   - License: MIT License

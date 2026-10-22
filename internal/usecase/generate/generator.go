@@ -59,8 +59,12 @@ func NewGenerator(llmSvc domain.LLMService, repo *storage.YAMLRepository) *Gener
 // 3. Domain Chunking by OpenAPI tags
 // 4. PRD Slicing by Markdown ## headings
 // 5. Concurrent Single-Shot Goroutine LLM generation
-// 6. Hybrid Data expansion (LLM Business + Go Fuzzing/Security) & file export
+// 6. Hybrid Data expansion (Go Fuzzing/Security) & file export
 func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
+	if g.llm == nil {
+		return nil, fmt.Errorf("llm service is required to generate test scenarios")
+	}
+
 	rawSpec, err := os.ReadFile(req.APIPath)
 	if err != nil {
 		return nil, fmt.Errorf("read openapi file %s: %w", req.APIPath, err)
@@ -84,13 +88,19 @@ func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
 	chunks := openapi.ChunkByDomain(pruned.Operations, 5)
 
 	// Step 4: PRD Slicing & Pairing
-	prdSections, _ := prd.SliceMarkdownFile(req.ReqPath)
+	prdSections, err := prd.SliceMarkdownFile(req.ReqPath)
+	if err != nil {
+		return nil, fmt.Errorf("read prd file %s: %w", req.ReqPath, err)
+	}
 	for i := range chunks {
 		chunks[i].PRDSection = prd.MatchSectionToTag(prdSections, chunks[i].Tag)
 	}
 
 	// Step 5 & 6: Concurrent Single-Shot Goroutines + Hybrid Data Augmentation
-	scenarios := g.buildScenariosConcurrently(ctx, chunks)
+	scenarios, err := g.buildScenariosConcurrently(ctx, chunks)
+	if err != nil {
+		return nil, err
+	}
 
 	suiteName := pruned.Title
 	if suiteName == "" {
@@ -126,7 +136,9 @@ func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
 	exportPath := ""
 	if strings.EqualFold(req.ExportFmt, "postman") {
 		exportPath = filepath.Join(outDir, "postman_collection.json")
-		_ = g.repo.ExportPostmanCollection(exportPath, suite)
+		if err := g.repo.ExportPostmanCollection(exportPath, suite); err != nil {
+			return nil, err
+		}
 	}
 
 	return &Result{
@@ -140,8 +152,9 @@ func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
 	}, nil
 }
 
-func (g *Generator) buildScenariosConcurrently(ctx context.Context, chunks []openapi.DomainChunk) []domain.Scenario {
+func (g *Generator) buildScenariosConcurrently(ctx context.Context, chunks []openapi.DomainChunk) ([]domain.Scenario, error) {
 	results := make([]domain.Scenario, len(chunks))
+	errs := make([]error, len(chunks))
 	var wg sync.WaitGroup
 
 	for i, chunk := range chunks {
@@ -152,98 +165,55 @@ func (g *Generator) buildScenariosConcurrently(ctx context.Context, chunks []ope
 			if ch.TokenProducer != nil {
 				ops = append([]openapi.NormalizedOperation{*ch.TokenProducer}, ops...)
 			}
-			results[idx] = g.synthesizeChunkScenario(ctx, idx, ch.Tag, ops, ch.PRDSection)
+			sc, err := g.generateChunkScenario(ctx, ch.Tag, ops, ch.PRDSection)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			results[idx] = sc
 		}(i, chunk)
 	}
 	wg.Wait()
-	return results
-}
 
-func (g *Generator) synthesizeChunkScenario(ctx context.Context, idx int, tag string, ops []openapi.NormalizedOperation, prdText string) domain.Scenario {
-	if g.llm != nil {
-		if sc, ok := g.tryLLMScenario(ctx, tag, ops, prdText); ok {
-			for i := range sc.Steps {
-				if matchedOp, found := findMatchingOp(sc.Steps[i], ops); found {
-					EnrichStepWithHybridData(&sc.Steps[i], matchedOp)
-				}
-			}
-			return sc
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
 		}
 	}
-
-	sc := domain.Scenario{
-		ID:   fmt.Sprintf("SCENARIO_%s_%02d", strings.ToUpper(tag), idx+1),
-		Name: fmt.Sprintf("%s workflow scenario", tag),
-	}
-	for i, op := range ops {
-		step := buildSchemaDrivenStep(i+1, op)
-		EnrichStepWithHybridData(&step, op)
-		sc.Steps = append(sc.Steps, step)
-	}
-	return sc
+	return results, nil
 }
 
-func (g *Generator) tryLLMScenario(ctx context.Context, tag string, ops []openapi.NormalizedOperation, prdText string) (domain.Scenario, bool) {
-	opsYAML, _ := yaml.Marshal(ops)
+func (g *Generator) generateChunkScenario(ctx context.Context, tag string, ops []openapi.NormalizedOperation, prdText string) (domain.Scenario, error) {
+	opsYAML, err := yaml.Marshal(ops)
+	if err != nil {
+		return domain.Scenario{}, fmt.Errorf("marshal operations for tag %q: %w", tag, err)
+	}
+
 	sysPrompt := `You are SpecTest Test Engineering Engine. Given pruned OpenAPI operations and PRD business rules, output a JSON Scenario object matching domain.Scenario (fields: id, name, steps). Ensure token producers extract user_token and consumers include Authorization: Bearer {{user_token}}.`
 	userPrompt := fmt.Sprintf("Domain Tag: %s\n\nPruned OpenAPI Operations:\n%s\n\nPRD Business Requirements:\n%s", tag, string(opsYAML), prdText)
 
 	rawJSON, err := g.llm.GenerateStructured(ctx, sysPrompt, userPrompt, nil)
-	if err != nil || strings.TrimSpace(rawJSON) == "" {
-		return domain.Scenario{}, false
+	if err != nil {
+		return domain.Scenario{}, fmt.Errorf("llm generation failed for domain %q: %w", tag, err)
+	}
+	if strings.TrimSpace(rawJSON) == "" {
+		return domain.Scenario{}, fmt.Errorf("llm returned empty response for domain %q", tag)
 	}
 
 	var sc domain.Scenario
-	if err := json.Unmarshal([]byte(rawJSON), &sc); err != nil || len(sc.Steps) == 0 {
-		return domain.Scenario{}, false
+	if err := json.Unmarshal([]byte(rawJSON), &sc); err != nil {
+		return domain.Scenario{}, fmt.Errorf("parse llm scenario json for domain %q: %w", tag, err)
 	}
-	return sc, true
-}
-
-func buildSchemaDrivenStep(stepNum int, op openapi.NormalizedOperation) domain.Step {
-	stepName := op.Summary
-	if stepName == "" {
-		stepName = fmt.Sprintf("%s %s", op.Method, op.Endpoint)
+	if len(sc.Steps) == 0 {
+		return domain.Scenario{}, fmt.Errorf("llm scenario for domain %q contains no steps", tag)
 	}
 
-	headers := map[string]string{}
-	if op.RequiresAuth {
-		headers["Authorization"] = "Bearer {{user_token}}"
-	}
-
-	var body interface{}
-	if op.RequestSchema != nil && len(op.RequestSchema.Properties) > 0 {
-		headers["Content-Type"] = "application/json"
-		body = openapi.SynthesizeSamplePayload(*op.RequestSchema)
-	}
-
-	step := domain.Step{
-		ID:   fmt.Sprintf("STEP_%02d_%s", stepNum, strings.ToUpper(op.OperationID)),
-		Name: stepName,
-		TargetRef: &domain.TargetRef{
-			Endpoint:    op.Endpoint,
-			Method:      op.Method,
-			OperationID: op.OperationID,
-		},
-		Request: domain.RequestDef{
-			Method:   op.Method,
-			Endpoint: op.Endpoint,
-			Headers:  headers,
-			Body:     body,
-		},
-		Assert: &domain.AssertionRule{
-			Status: 200,
-		},
-	}
-
-	if op.IsTokenProducer {
-		step.Extract = map[string]string{
-			"user_token": "$.data.access_token",
+	for i := range sc.Steps {
+		if matchedOp, found := findMatchingOp(sc.Steps[i], ops); found {
+			EnrichStepWithHybridData(&sc.Steps[i], matchedOp)
 		}
-		step.Assert.ForbidKeys = []string{"password", "password_hash", "salt"}
 	}
-
-	return step
+	return sc, nil
 }
 
 func findMatchingOp(step domain.Step, ops []openapi.NormalizedOperation) (openapi.NormalizedOperation, bool) {

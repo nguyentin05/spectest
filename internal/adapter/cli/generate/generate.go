@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/nguyentin05/spectest/internal/adapter/cli/cmdutil"
-	"github.com/nguyentin05/spectest/internal/adapter/presenter"
 	ucgenerate "github.com/nguyentin05/spectest/internal/usecase/generate"
 	"github.com/spf13/cobra"
 )
@@ -73,6 +72,17 @@ func runGenerate(ctx context.Context, out io.Writer, f *cmdutil.Factory, opts *o
 		return err
 	}
 
-	presenter.RenderGenerateSummary(out, res, llmSvc.Name())
+	fmt.Fprintf(out, "LLM Provider        : %s\n", llmSvc.Name())
+	fmt.Fprintf(out, "Spec Pruning        : %.1f%% reduction\n", res.CompressionRatio)
+	if res.AuthProducer != "" {
+		fmt.Fprintf(out, "Auth Detection      : Detected producer [%s] -> wired Bearer token\n", res.AuthProducer)
+	}
+	fmt.Fprintf(out, "Domain Chunks       : %d processed\n", res.ChunksProcessed)
+	fmt.Fprintf(out, "Test Suite File     : %s\n", res.SuitePath)
+	fmt.Fprintf(out, "Coverage Matrix     : %s\n", res.MatrixPath)
+	if res.ExportPath != "" {
+		fmt.Fprintf(out, "Exported Collection : %s\n", res.ExportPath)
+	}
+
 	return nil
 }
