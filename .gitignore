@@ -14,6 +14,10 @@ coverage.html
 # Docs build
 /site/
 
+# Local documentation
+*.local.md
+docs/superpowers/
+
 # Local environment & credentials
 .env
 .env.*
