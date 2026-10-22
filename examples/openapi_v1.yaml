@@ -1,0 +1,97 @@
+openapi: 3.0.3
+info:
+  title: E-Commerce Order & Checkout API
+  version: 1.0.0
+  description: Sample API for SpecTest-AI demonstration
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/auth/login:
+    post:
+      summary: User authentication
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  example: "tester@myshop.vn"
+                password:
+                  type: string
+                  example: "SecurePassword123!"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      access_token:
+                        type: string
+                      user_id:
+                        type: string
+
+  /api/v1/orders/checkout:
+    post:
+      summary: Create order checkout
+      tags: [Orders]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [total_amount, items]
+              properties:
+                voucher_code:
+                  type: string
+                  example: "SALE50"
+                total_amount:
+                  type: number
+                  example: 600000
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      product_id:
+                        type: integer
+                      quantity:
+                        type: integer
+      responses:
+        '201':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      order_id:
+                        type: string
+                      status:
+                        type: string
+                      final_amount:
+                        type: number
+        '400':
+          description: Invalid order request
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
