@@ -1,8 +1,11 @@
 package generate
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/nguyentin05/spectest/internal/infrastructure/openapi"
 )
 
 func TestScenarioSystemPrompt_ContainsExecutionContract(t *testing.T) {
@@ -55,5 +58,41 @@ func TestBuildScenarioUserPrompt_EmptyPRD(t *testing.T) {
 
 	if !strings.Contains(got, "(no PRD provided") {
 		t.Errorf("empty PRD placeholder missing; got:\n%s", got)
+	}
+}
+
+func TestGenerateChunkScenario_UsesPromptContract(t *testing.T) {
+	var gotSystemPrompt, gotUserPrompt string
+
+	mock := &mockLLMService{
+		generateFunc: func(ctx context.Context, systemPrompt, userPrompt string, schema interface{}) (string, error) {
+			gotSystemPrompt = systemPrompt
+			gotUserPrompt = userPrompt
+			return `{"id":"SCN_PETS_CREATEPET","name":"Create pet","steps":[{"id":"STEP_POST_CREATEPET","name":"Create pet","request":{"method":"POST","endpoint":"/pets"},"test_cases":[{"id":"TC_STEP_POST_CREATEPET_VALID","name":"Valid","type":"ai_business_valid","payload":{},"assert":{"status":201}}],"assert":{"status":201}}]}`, nil
+		},
+	}
+
+	gen := NewGenerator(mock, nil)
+	ops := []openapi.NormalizedOperation{
+		{Method: "POST", Endpoint: "/pets", OperationID: "createPet"},
+	}
+
+	if _, err := gen.generateChunkScenario(context.Background(), "Pets", ops, "Age must be a positive integer."); err != nil {
+		t.Fatalf("generateChunkScenario: %v", err)
+	}
+
+	if gotSystemPrompt != scenarioSystemPrompt {
+		t.Errorf("generator did not use scenarioSystemPrompt")
+	}
+	for _, want := range []string{
+		"Domain Tag: Pets",
+		"Age must be a positive integer.",
+		"POST",
+		"/pets",
+		"Return exactly one JSON object",
+	} {
+		if !strings.Contains(gotUserPrompt, want) {
+			t.Errorf("user prompt missing %q; got:\n%s", want, gotUserPrompt)
+		}
 	}
 }

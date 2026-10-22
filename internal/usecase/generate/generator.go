@@ -197,8 +197,8 @@ func (g *Generator) generateChunkScenario(ctx context.Context, tag string, ops [
 		return domain.Scenario{}, fmt.Errorf("marshal operations for tag %q: %w", tag, err)
 	}
 
-	sysPrompt := `You are SpecTest Test Engineering Engine. Given pruned OpenAPI operations and PRD business rules, output a JSON Scenario object matching domain.Scenario (fields: id, name, steps). Ensure token producers extract user_token and consumers include Authorization: Bearer {{user_token}}.`
-	userPrompt := fmt.Sprintf("Domain Tag: %s\n\nPruned OpenAPI Operations:\n%s\n\nPRD Business Requirements:\n%s", tag, string(opsYAML), prdText)
+	sysPrompt := scenarioSystemPrompt
+	userPrompt := buildScenarioUserPrompt(tag, string(opsYAML), prdText)
 
 	rawJSON, err := g.llm.GenerateStructured(ctx, sysPrompt, userPrompt, nil)
 	if err != nil {
