@@ -77,7 +77,8 @@ func TestGenerateChunkScenario_UsesPromptContract(t *testing.T) {
 		{Method: "POST", Endpoint: "/pets", OperationID: "createPet"},
 	}
 
-	if _, err := gen.generateChunkScenario(context.Background(), "Pets", ops, "Age must be a positive integer."); err != nil {
+	sc, err := gen.generateChunkScenario(context.Background(), "Pets", ops, "Age must be a positive integer.")
+	if err != nil {
 		t.Fatalf("generateChunkScenario: %v", err)
 	}
 
@@ -89,10 +90,25 @@ func TestGenerateChunkScenario_UsesPromptContract(t *testing.T) {
 		"Age must be a positive integer.",
 		"POST",
 		"/pets",
+		"operation_id: createPet",
 		"Return exactly one JSON object",
 	} {
 		if !strings.Contains(gotUserPrompt, want) {
 			t.Errorf("user prompt missing %q; got:\n%s", want, gotUserPrompt)
 		}
+	}
+
+	if len(sc.Steps) == 0 {
+		t.Fatalf("expected at least one parsed step; got none")
+	}
+	foundTestCase := false
+	for _, tc := range sc.Steps[0].TestCases {
+		if tc.ID == "TC_STEP_POST_CREATEPET_VALID" {
+			foundTestCase = true
+			break
+		}
+	}
+	if !foundTestCase {
+		t.Errorf("parsed scenario missing test case TC_STEP_POST_CREATEPET_VALID")
 	}
 }
