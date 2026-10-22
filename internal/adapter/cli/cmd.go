@@ -7,6 +7,7 @@ import (
 
 	"github.com/nguyentin05/spectest/internal/adapter/cli/cmdutil"
 	"github.com/nguyentin05/spectest/internal/adapter/cli/config"
+	"github.com/nguyentin05/spectest/internal/adapter/cli/generate"
 	"github.com/nguyentin05/spectest/internal/platform/buildinfo"
 	"github.com/nguyentin05/spectest/internal/platform/logger"
 	"github.com/spf13/cobra"
@@ -51,6 +52,7 @@ runs multi-tier API assertions, and evolves tests when specifications change.`,
 		Title: "Configuration & Workspace Commands:",
 	})
 
+	spectestCmd.AddCommand(generate.NewCommand(f))
 	spectestCmd.AddCommand(config.NewCommand(f))
 
 	return spectestCmd
