@@ -1,3 +1,5 @@
+// Package cmdutil provides shared dependency wiring for SpecTest CLI subcommands,
+// following the `cmdutil.Factory` pattern used by kubectl and the GitHub CLI.
 package cmdutil
 
 import (
@@ -7,8 +9,9 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// Factory holds global runtime state and provides lazy initialization for Clean Architecture
-// services shared across CLI subcommands.
+// Factory holds global CLI runtime state (such as the `--verbose` flag) and lazily
+// constructs infrastructure services shared across subcommands, so each command package
+// receives its dependencies through a single injected value instead of global variables.
 type Factory struct {
 	Verbose bool
 
@@ -16,17 +19,18 @@ type Factory struct {
 	suiteRepo *storage.YAMLRepository
 }
 
-// NewFactory creates a new Factory container with default settings.
+// NewFactory returns an empty Factory. Services are created on first access.
 func NewFactory() *Factory {
 	return &Factory{}
 }
 
-// BindFlags registers global persistent flags (--verbose) on the main command.
+// BindFlags registers global persistent flags (currently `--verbose`) on the given flag set,
+// typically the root command's PersistentFlags.
 func (f *Factory) BindFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&f.Verbose, "verbose", false, "Enable verbose debug logging")
 }
 
-// CredentialStore returns the shared credential store instance.
+// CredentialStore returns the shared FileCredentialStore, creating it on first call.
 func (f *Factory) CredentialStore() *storage.FileCredentialStore {
 	if f.credStore == nil {
 		f.credStore = storage.NewFileCredentialStore()
@@ -34,7 +38,7 @@ func (f *Factory) CredentialStore() *storage.FileCredentialStore {
 	return f.credStore
 }
 
-// SuiteRepository returns the YAML suite repository instance.
+// SuiteRepository returns the shared YAMLRepository, creating it on first call.
 func (f *Factory) SuiteRepository() *storage.YAMLRepository {
 	if f.suiteRepo == nil {
 		f.suiteRepo = storage.NewYAMLRepository()
@@ -42,8 +46,8 @@ func (f *Factory) SuiteRepository() *storage.YAMLRepository {
 	return f.suiteRepo
 }
 
-// LLMService resolves and initializes the active LLM provider configured via `spectest config`
-// or environment variables.
+// LLMService resolves the active provider, model, endpoint, and API key from the credential
+// store and environment variables, returning an error if any required setting is missing.
 func (f *Factory) LLMService() (domain.LLMService, error) {
 	return llm.NewProvider(f.CredentialStore(), "", "", "")
 }

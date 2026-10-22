@@ -4,7 +4,9 @@ import (
 	"strings"
 )
 
-// DomainChunk represents a cohesive cluster of API endpoints grouped by domain tag or path prefix.
+// DomainChunk represents a cohesive group of normalized API operations sharing a common
+// OpenAPI domain tag or path prefix, paired with an optional authentication producer and
+// matching PRD requirement text so each LLM prompt fits within a compact context window.
 type DomainChunk struct {
 	Tag           string                `json:"tag"`
 	TokenProducer *NormalizedOperation  `json:"token_producer,omitempty"`
@@ -12,8 +14,10 @@ type DomainChunk struct {
 	PRDSection    string                `json:"prd_section,omitempty"`
 }
 
-// ChunkByDomain partitions normalized operations by OpenAPI tag (or path prefix) into chunks
-// of at most maxPerChunk endpoints, attaching any detected token producer to consumer chunks.
+// ChunkByDomain partitions a slice of NormalizedOperation entries by their primary OpenAPI tag
+// (or URL path segment fallback) into chunks containing at most maxPerChunk operations.
+// If a chunk contains authenticated operations (`RequiresAuth`) but does not already include
+// the spec's token producer, the detected TokenProducer is attached to the chunk automatically.
 func ChunkByDomain(ops []NormalizedOperation, maxPerChunk int) []DomainChunk {
 	if maxPerChunk <= 0 {
 		maxPerChunk = 5
@@ -72,6 +76,8 @@ func ChunkByDomain(ops []NormalizedOperation, maxPerChunk int) []DomainChunk {
 	return chunks
 }
 
+// primaryTag returns the first non-empty OpenAPI tag on an operation, or derives a domain
+// identifier from the first non-version URL path segment when tags are absent.
 func primaryTag(op NormalizedOperation) string {
 	if len(op.Tags) > 0 && strings.TrimSpace(op.Tags[0]) != "" {
 		return strings.TrimSpace(op.Tags[0])

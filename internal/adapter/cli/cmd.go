@@ -1,3 +1,5 @@
+// Package cli is the command-line adapter for SpecTest. It builds the Cobra command tree
+// and delegates each subcommand to its own package under internal/adapter/cli/.
 package cli
 
 import (
@@ -13,8 +15,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewSpectestCmd constructs the main `spectest` command using native Cobra command groups
-// and wires the subcommand packages via cmdutil.Factory.
+// NewSpectestCmd builds the root `spectest` command. It creates a shared cmdutil.Factory,
+// registers the global `--verbose` and `--version` flags, defines the "core" and "settings"
+// command groups shown in help output, and attaches the `generate` and `config` subcommands.
+// A fresh command tree is returned on every call so tests can execute it in isolation.
 func NewSpectestCmd() *cobra.Command {
 	f := cmdutil.NewFactory()
 	var showVersion bool
@@ -58,7 +62,8 @@ runs multi-tier API assertions, and evolves tests when specifications change.`,
 	return spectestCmd
 }
 
-// Execute runs the CLI application and exits with status 1 on error.
+// Execute builds and runs the root command against os.Args. On failure it prints
+// "Error: <message>" to stderr and terminates the process with exit status 1.
 func Execute() {
 	if err := NewSpectestCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

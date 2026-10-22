@@ -66,3 +66,15 @@ func TestGenerateCmd_MissingAPIFlag(t *testing.T) {
 		t.Errorf("expected missing --api flag error, got: %v", err)
 	}
 }
+
+func TestSpectestCmd_VerboseFlag(t *testing.T) {
+	cmd := NewSpectestCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--verbose", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute with --verbose failed: %v", err)
+	}
+}

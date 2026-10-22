@@ -1,3 +1,5 @@
+// Package storage implements filesystem persistence for `spectest.yaml` test suites,
+// coverage matrices, Postman collections, and user LLM credentials.
 package storage
 
 import (
@@ -9,31 +11,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// CredentialConfig represents the persistent configuration stored in ~/.spectest/credentials.yaml
-// or ./.spectestrc.yaml.
+// CredentialConfig represents the persistent YAML structure stored in
+// `~/.spectest/credentials.yaml` (global) or `./.spectestrc.yaml` (repository-local).
 type CredentialConfig struct {
 	DefaultProvider string                       `yaml:"default_provider,omitempty"`
 	DefaultModel    string                       `yaml:"default_model,omitempty"`
 	Providers       map[string]ProviderCredEntry `yaml:"providers,omitempty"`
 }
 
-// ProviderCredEntry holds credentials and endpoint settings for a specific LLM provider.
+// ProviderCredEntry holds the API key, endpoint URL, and model name associated
+// with a specific LLM provider identifier.
 type ProviderCredEntry struct {
 	APIKey   string `yaml:"api_key,omitempty"`
 	Endpoint string `yaml:"endpoint,omitempty"`
 	Model    string `yaml:"model,omitempty"`
 }
 
-// FileCredentialStore implements domain.CredentialStore using a 3-tier resolution hierarchy:
-// 1. Environment variables (SPECTEST_*, <PROVIDER>_*)
-// 2. Repository local config (./.spectestrc.yaml)
-// 3. Global user config (~/.spectest/credentials.yaml with 0600 permissions)
+// FileCredentialStore implements domain.CredentialStore using a 3-tier resolution order:
+//  1. Environment variables (`SPECTEST_*` or `<PROVIDER>_*`)
+//  2. Repository-local configuration (`./.spectestrc.yaml`)
+//  3. User-global configuration (`~/.spectest/credentials.yaml` with `0600` permissions)
 type FileCredentialStore struct {
 	globalPath string
 	localPath  string
 }
 
-// NewFileCredentialStore creates a FileCredentialStore with standard config paths.
+// NewFileCredentialStore constructs a FileCredentialStore pointing to `~/.spectest/credentials.yaml`
+// for global storage and `./.spectestrc.yaml` for workspace-local overrides.
 func NewFileCredentialStore() *FileCredentialStore {
 	home, err := os.UserHomeDir()
 	globalPath := ".spectest/credentials.yaml"
@@ -46,7 +50,8 @@ func NewFileCredentialStore() *FileCredentialStore {
 	}
 }
 
-// NewFileCredentialStoreWithPath creates a store with custom paths (used in tests).
+// NewFileCredentialStoreWithPath constructs a FileCredentialStore with explicit global
+// and local file paths, enabling isolated unit testing without touching the user's home directory.
 func NewFileCredentialStoreWithPath(globalPath, localPath string) *FileCredentialStore {
 	return &FileCredentialStore{
 		globalPath: globalPath,
@@ -54,11 +59,12 @@ func NewFileCredentialStoreWithPath(globalPath, localPath string) *FileCredentia
 	}
 }
 
-// GlobalPath returns the path to the global credentials file.
+// GlobalPath returns the filesystem path of the user-global credentials file.
 func (s *FileCredentialStore) GlobalPath() string {
 	return s.globalPath
 }
 
+// loadConfig reads and unmarshals a CredentialConfig YAML file from disk.
 func (s *FileCredentialStore) loadConfig(path string) (*CredentialConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -74,6 +80,8 @@ func (s *FileCredentialStore) loadConfig(path string) (*CredentialConfig, error)
 	return &cfg, nil
 }
 
+// loadOrInitGlobal loads the global credentials file or returns an initialized empty
+// CredentialConfig if the file does not exist yet.
 func (s *FileCredentialStore) loadOrInitGlobal() *CredentialConfig {
 	cfg, err := s.loadConfig(s.globalPath)
 	if err != nil || cfg == nil {
@@ -84,6 +92,8 @@ func (s *FileCredentialStore) loadOrInitGlobal() *CredentialConfig {
 	return cfg
 }
 
+// saveGlobal writes the given CredentialConfig to the global path and enforces
+// `0700` directory permissions and `0600` file permissions so only the owner can read it.
 func (s *FileCredentialStore) saveGlobal(cfg *CredentialConfig) error {
 	dir := filepath.Dir(s.globalPath)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -99,14 +109,14 @@ func (s *FileCredentialStore) saveGlobal(cfg *CredentialConfig) error {
 	return os.Chmod(s.globalPath, 0o600)
 }
 
-// GetAPIKey resolves the API key for a provider.
+// GetAPIKey resolves the API key for a provider by checking `SPECTEST_API_KEY`,
+// `<PROVIDER>_API_KEY`, the repository-local config, and finally the global credentials file.
 func (s *FileCredentialStore) GetAPIKey(provider string) (string, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
 		provider = s.GetDefaultProvider()
 	}
 
-	// Tier 1: Environment variables
 	if key := os.Getenv("SPECTEST_API_KEY"); key != "" {
 		return key, nil
 	}
@@ -116,14 +126,12 @@ func (s *FileCredentialStore) GetAPIKey(provider string) (string, error) {
 		}
 	}
 
-	// Tier 2: Repo-level ./.spectestrc.yaml
 	if localCfg, err := s.loadConfig(s.localPath); err == nil && localCfg != nil {
 		if entry, ok := localCfg.Providers[provider]; ok && entry.APIKey != "" {
 			return entry.APIKey, nil
 		}
 	}
 
-	// Tier 3: Global ~/.spectest/credentials.yaml
 	if globalCfg, err := s.loadConfig(s.globalPath); err == nil && globalCfg != nil {
 		if entry, ok := globalCfg.Providers[provider]; ok && entry.APIKey != "" {
 			return entry.APIKey, nil
@@ -133,7 +141,8 @@ func (s *FileCredentialStore) GetAPIKey(provider string) (string, error) {
 	return "", nil
 }
 
-// SetAPIKey saves the API key for a provider in ~/.spectest/credentials.yaml with 0600 permissions.
+// SetAPIKey saves the API key for the given (or active default) provider into
+// `~/.spectest/credentials.yaml` with `0600` permissions. Returns an error if no provider is set.
 func (s *FileCredentialStore) SetAPIKey(provider, key string) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
@@ -149,14 +158,14 @@ func (s *FileCredentialStore) SetAPIKey(provider, key string) error {
 	return s.saveGlobal(cfg)
 }
 
-// GetEndpoint resolves the endpoint URL for a provider.
+// GetEndpoint resolves the base endpoint URL for a provider by checking `SPECTEST_ENDPOINT`,
+// `<PROVIDER>_ENDPOINT`, the repository-local config, and the global credentials file.
 func (s *FileCredentialStore) GetEndpoint(provider string) (string, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
 		provider = s.GetDefaultProvider()
 	}
 
-	// Tier 1: Environment variables
 	if ep := os.Getenv("SPECTEST_ENDPOINT"); ep != "" {
 		return ep, nil
 	}
@@ -166,14 +175,12 @@ func (s *FileCredentialStore) GetEndpoint(provider string) (string, error) {
 		}
 	}
 
-	// Tier 2: Repo-level ./.spectestrc.yaml
 	if localCfg, err := s.loadConfig(s.localPath); err == nil && localCfg != nil {
 		if entry, ok := localCfg.Providers[provider]; ok && entry.Endpoint != "" {
 			return entry.Endpoint, nil
 		}
 	}
 
-	// Tier 3: Global ~/.spectest/credentials.yaml
 	if globalCfg, err := s.loadConfig(s.globalPath); err == nil && globalCfg != nil {
 		if entry, ok := globalCfg.Providers[provider]; ok && entry.Endpoint != "" {
 			return entry.Endpoint, nil
@@ -183,7 +190,8 @@ func (s *FileCredentialStore) GetEndpoint(provider string) (string, error) {
 	return "", nil
 }
 
-// SetEndpoint saves the endpoint URL for a provider in ~/.spectest/credentials.yaml.
+// SetEndpoint persists the endpoint URL for the given (or active default) provider
+// in `~/.spectest/credentials.yaml`. Returns an error if no provider is configured.
 func (s *FileCredentialStore) SetEndpoint(provider, endpoint string) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
@@ -199,7 +207,8 @@ func (s *FileCredentialStore) SetEndpoint(provider, endpoint string) error {
 	return s.saveGlobal(cfg)
 }
 
-// GetDefaultProvider returns the configured default provider, or empty string if unset.
+// GetDefaultProvider resolves the active LLM provider identifier across `SPECTEST_PROVIDER`,
+// the repository-local config, and the global credentials file. Returns empty string if unset.
 func (s *FileCredentialStore) GetDefaultProvider() string {
 	if p := os.Getenv("SPECTEST_PROVIDER"); p != "" {
 		return strings.ToLower(strings.TrimSpace(p))
@@ -213,7 +222,8 @@ func (s *FileCredentialStore) GetDefaultProvider() string {
 	return ""
 }
 
-// SetDefaultProvider sets the default LLM provider in ~/.spectest/credentials.yaml.
+// SetDefaultProvider updates and persists the default LLM provider identifier
+// in `~/.spectest/credentials.yaml`.
 func (s *FileCredentialStore) SetDefaultProvider(provider string) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
@@ -224,7 +234,8 @@ func (s *FileCredentialStore) SetDefaultProvider(provider string) error {
 	return s.saveGlobal(cfg)
 }
 
-// GetDefaultModel returns the configured model for a provider, or empty string if unset.
+// GetDefaultModel resolves the model name for the specified provider by checking
+// `SPECTEST_MODEL`, `<PROVIDER>_MODEL`, provider-specific entries, and `default_model`.
 func (s *FileCredentialStore) GetDefaultModel(provider string) string {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if m := os.Getenv("SPECTEST_MODEL"); m != "" {
@@ -254,7 +265,8 @@ func (s *FileCredentialStore) GetDefaultModel(provider string) string {
 	return ""
 }
 
-// SetDefaultModel sets the model for a provider in ~/.spectest/credentials.yaml.
+// SetDefaultModel updates and persists the model name for the given provider
+// in `~/.spectest/credentials.yaml`.
 func (s *FileCredentialStore) SetDefaultModel(provider, model string) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	model = strings.TrimSpace(model)
@@ -271,7 +283,8 @@ func (s *FileCredentialStore) SetDefaultModel(provider, model string) error {
 	return s.saveGlobal(cfg)
 }
 
-// MaskKey masks an API key for safe terminal display.
+// MaskKey redacts an API key for terminal display, preserving only the first and last
+// four characters when the key is longer than 8 characters, or returning `[not set]` if empty.
 func MaskKey(key string) string {
 	if key == "" {
 		return "[not set]"

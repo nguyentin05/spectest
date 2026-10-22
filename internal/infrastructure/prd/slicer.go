@@ -1,3 +1,5 @@
+// Package prd parses and slices Markdown Product Requirements Documents (PRDs)
+// into domain sections that can be paired with corresponding OpenAPI tag chunks.
 package prd
 
 import (
@@ -6,14 +8,16 @@ import (
 	"unicode"
 )
 
-// Section represents a sliced Markdown PRD section extracted by Heading level 2 (##).
+// Section represents a logical requirement block extracted from a Markdown PRD
+// under a level-2 heading (`## `), along with tokenized heading keywords.
 type Section struct {
 	Heading  string   `json:"heading"`
 	Keywords []string `json:"keywords"`
 	Content  string   `json:"content"`
 }
 
-// SliceMarkdownFile reads a Markdown PRD file and splits it into logical business domain sections.
+// SliceMarkdownFile reads a Markdown file from disk and splits it into Section blocks.
+// If path is empty, it returns nil without error so PRD input remains optional.
 func SliceMarkdownFile(path string) ([]Section, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
@@ -25,7 +29,8 @@ func SliceMarkdownFile(path string) ([]Section, error) {
 	return SliceMarkdown(string(data)), nil
 }
 
-// SliceMarkdown splits raw Markdown text by `## ` headings.
+// SliceMarkdown partitions raw Markdown text at every level-2 heading (`## `)
+// and extracts searchable keywords from each section title.
 func SliceMarkdown(markdown string) []Section {
 	lines := strings.Split(markdown, "\n")
 	var sections []Section
@@ -59,7 +64,9 @@ func SliceMarkdown(markdown string) []Section {
 	return sections
 }
 
-// MatchSectionToTag finds the best matching PRD section(s) for a given OpenAPI domain tag.
+// MatchSectionToTag selects the Markdown Section entries whose heading or keywords match
+// the given OpenAPI domain tag. If no specific section matches, all sections are concatenated
+// as fallback context.
 func MatchSectionToTag(sections []Section, tag string) string {
 	if len(sections) == 0 {
 		return ""
@@ -92,6 +99,7 @@ func MatchSectionToTag(sections []Section, tag string) string {
 	return strings.Join(matched, "\n\n")
 }
 
+// tokenizeHeading splits a heading string into lowercase alphanumeric tokens of length >= 3.
 func tokenizeHeading(text string) []string {
 	words := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)

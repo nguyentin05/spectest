@@ -8,7 +8,7 @@ import (
 	"github.com/nguyentin05/spectest/internal/infrastructure/storage"
 )
 
-// Config holds explicit options for initializing an LLM provider.
+// Config holds explicit configuration parameters for initializing an LLM client.
 type Config struct {
 	Provider string
 	Model    string
@@ -16,8 +16,9 @@ type Config struct {
 	APIKey   string
 }
 
-// NewProvider resolves the configured provider, model, endpoint, and API key from flags
-// or the credential store and returns a unified LLMService client.
+// NewProvider resolves the active provider, model, endpoint, and API key from explicit
+// overrides or the given FileCredentialStore and returns an initialized domain.LLMService.
+// It returns an error if provider, model, or endpoint is missing.
 func NewProvider(store *storage.FileCredentialStore, flagProvider, flagModel, flagEndpoint string) (domain.LLMService, error) {
 	if store == nil {
 		store = storage.NewFileCredentialStore()

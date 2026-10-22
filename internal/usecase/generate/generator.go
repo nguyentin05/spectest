@@ -1,3 +1,5 @@
+// Package generate implements the application usecase for converting OpenAPI specifications
+// and Markdown PRD documents into executable `spectest.yaml` test suites and hybrid datasets.
 package generate
 
 import (
@@ -16,7 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Request encapsulates the parameters for the `spectest generate` usecase.
+// Request holds the input parameters for executing the `spectest generate` workflow.
 type Request struct {
 	APIPath   string
 	ReqPath   string
@@ -25,7 +27,8 @@ type Request struct {
 	Enrich    bool
 }
 
-// Result contains the generated suite and telemetry from the generation pipeline.
+// Result contains the generated TestSuiteFile artifact, output file paths, and
+// preprocessing telemetry produced by a completed generation run.
 type Result struct {
 	Suite            *domain.TestSuiteFile
 	SuitePath        string
@@ -36,13 +39,14 @@ type Result struct {
 	AuthProducer     string
 }
 
-// Generator orchestrates the test suite generation pipeline.
+// Generator coordinates the end-to-end test suite generation pipeline across
+// OpenAPI preprocessing, PRD slicing, concurrent LLM scenario synthesis, and hybrid data expansion.
 type Generator struct {
 	llm  domain.LLMService
 	repo *storage.YAMLRepository
 }
 
-// NewGenerator creates a new Generator usecase instance.
+// NewGenerator constructs a Generator wired with the given LLMService and YAMLRepository.
 func NewGenerator(llmSvc domain.LLMService, repo *storage.YAMLRepository) *Generator {
 	if repo == nil {
 		repo = storage.NewYAMLRepository()
@@ -53,13 +57,16 @@ func NewGenerator(llmSvc domain.LLMService, repo *storage.YAMLRepository) *Gener
 	}
 }
 
-// Execute runs the generation pipeline:
-// 1. Spec Pruning (0 tokens)
-// 2. Zero-Token Auth Detection (0 tokens)
-// 3. Domain Chunking by OpenAPI tags
-// 4. PRD Slicing by Markdown ## headings
-// 5. Concurrent Single-Shot Goroutine LLM generation
-// 6. Hybrid Data expansion (Go Fuzzing/Security) & file export
+// Execute runs the 6-stage test generation pipeline:
+//  1. Prune OpenAPI metadata and resolve `$ref` schemas at zero token cost.
+//  2. Detect authentication producer and consumer endpoints via security schemes and regex.
+//  3. Partition normalized endpoints into domain chunks by OpenAPI tags.
+//  4. Slice the optional Markdown PRD and pair matching sections with each domain chunk.
+//  5. Invoke the configured LLM concurrently across chunks to synthesize stateful scenarios.
+//  6. Augment mutating steps with deterministic Go fuzzing/security cases and write artifacts.
+//
+// Execute fails fast and returns an error if the LLM service is unconfigured, unreachable,
+// or returns invalid scenario JSON.
 func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
 	if g.llm == nil {
 		return nil, fmt.Errorf("llm service is required to generate test scenarios")
@@ -70,7 +77,6 @@ func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
 		return nil, fmt.Errorf("read openapi file %s: %w", req.APIPath, err)
 	}
 
-	// Step 1 & 2: Prune Spec & Zero-Token Auth Detection
 	pruned, err := openapi.PruneSpec(rawSpec)
 	if err != nil {
 		return nil, err
@@ -84,10 +90,8 @@ func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
 		}
 	}
 
-	// Step 3: Domain Chunking
 	chunks := openapi.ChunkByDomain(pruned.Operations, 5)
 
-	// Step 4: PRD Slicing & Pairing
 	prdSections, err := prd.SliceMarkdownFile(req.ReqPath)
 	if err != nil {
 		return nil, fmt.Errorf("read prd file %s: %w", req.ReqPath, err)
@@ -96,7 +100,6 @@ func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
 		chunks[i].PRDSection = prd.MatchSectionToTag(prdSections, chunks[i].Tag)
 	}
 
-	// Step 5 & 6: Concurrent Single-Shot Goroutines + Hybrid Data Augmentation
 	scenarios, err := g.buildScenariosConcurrently(ctx, chunks)
 	if err != nil {
 		return nil, err
@@ -152,6 +155,8 @@ func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
 	}, nil
 }
 
+// buildScenariosConcurrently dispatches one goroutine per DomainChunk to synthesize
+// scenarios in parallel and returns the first error encountered if any chunk fails.
 func (g *Generator) buildScenariosConcurrently(ctx context.Context, chunks []openapi.DomainChunk) ([]domain.Scenario, error) {
 	results := make([]domain.Scenario, len(chunks))
 	errs := make([]error, len(chunks))
@@ -183,6 +188,9 @@ func (g *Generator) buildScenariosConcurrently(ctx context.Context, chunks []ope
 	return results, nil
 }
 
+// generateChunkScenario prompts the configured LLM with a single domain chunk's pruned
+// operations and matched PRD requirements, unmarshals the returned JSON into a domain.Scenario,
+// and enriches mutating steps with deterministic Go fuzzing and security test cases.
 func (g *Generator) generateChunkScenario(ctx context.Context, tag string, ops []openapi.NormalizedOperation, prdText string) (domain.Scenario, error) {
 	opsYAML, err := yaml.Marshal(ops)
 	if err != nil {
@@ -216,6 +224,8 @@ func (g *Generator) generateChunkScenario(ctx context.Context, tag string, ops [
 	return sc, nil
 }
 
+// findMatchingOp locates the NormalizedOperation corresponding to a generated Step
+// by comparing TargetRef or Request method and endpoint paths.
 func findMatchingOp(step domain.Step, ops []openapi.NormalizedOperation) (openapi.NormalizedOperation, bool) {
 	for _, op := range ops {
 		if step.TargetRef != nil && strings.EqualFold(step.TargetRef.Endpoint, op.Endpoint) && strings.EqualFold(step.TargetRef.Method, op.Method) {

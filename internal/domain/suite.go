@@ -1,13 +1,17 @@
+// Package domain defines the core entities, value objects, and port interfaces
+// for the SpecTest engine. It contains pure Go types with zero external dependencies.
 package domain
 
-// TestSuiteFile represents the spectest.yaml file schema.
+// TestSuiteFile represents the root schema of a `spectest.yaml` file on disk.
+// It encapsulates suite-level metadata and the base set of executable test scenarios.
 type TestSuiteFile struct {
 	Version  string        `yaml:"version" json:"version"`
 	Metadata SuiteMetadata `yaml:"metadata" json:"metadata"`
 	Base     BaseSuite     `yaml:"base" json:"base"`
 }
 
-// SuiteMetadata contains metadata for the test suite.
+// SuiteMetadata holds descriptive information, the default target server URL,
+// and global environment variables shared across all scenarios in a suite.
 type SuiteMetadata struct {
 	Name          string            `yaml:"name" json:"name"`
 	Description   string            `yaml:"description,omitempty" json:"description,omitempty"`
@@ -15,12 +19,13 @@ type SuiteMetadata struct {
 	Env           map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 }
 
-// BaseSuite represents the base test suite.
+// BaseSuite contains the ordered list of scenarios generated from specifications.
 type BaseSuite struct {
 	Scenarios []Scenario `yaml:"scenarios" json:"scenarios"`
 }
 
-// Scenario represents an end-to-end user journey or domain flow.
+// Scenario models an end-to-end business workflow or user journey composed of
+// sequential HTTP steps that can pass extracted state variables forward.
 type Scenario struct {
 	ID          string `yaml:"id" json:"id"`
 	Name        string `yaml:"name" json:"name"`
@@ -28,7 +33,8 @@ type Scenario struct {
 	Steps       []Step `yaml:"steps" json:"steps"`
 }
 
-// Step represents a single HTTP request step in a scenario.
+// Step represents a single HTTP operation within a scenario, including its request
+// template, JSONPath variable extraction mappings, dataset variations, and assertions.
 type Step struct {
 	ID        string            `yaml:"id" json:"id"`
 	Name      string            `yaml:"name" json:"name"`
@@ -39,14 +45,16 @@ type Step struct {
 	Assert    *AssertionRule    `yaml:"assert,omitempty" json:"assert,omitempty"`
 }
 
-// TargetRef links a step to an operation in the OpenAPI specification.
+// TargetRef links a test step back to its originating OpenAPI endpoint and operationId
+// so downstream impact analysis can trace specification changes to affected steps.
 type TargetRef struct {
 	Endpoint    string `yaml:"endpoint" json:"endpoint"`
 	Method      string `yaml:"method" json:"method"`
 	OperationID string `yaml:"operation_id,omitempty" json:"operation_id,omitempty"`
 }
 
-// RequestDef defines the HTTP request template.
+// RequestDef defines the HTTP method, path, headers, and default payload for a step.
+// Header and path strings may reference runtime state variables using `{{var}}` syntax.
 type RequestDef struct {
 	Method   string            `yaml:"method" json:"method"`
 	Endpoint string            `yaml:"endpoint" json:"endpoint"`
@@ -54,7 +62,9 @@ type RequestDef struct {
 	Body     interface{}       `yaml:"body,omitempty" json:"body,omitempty"`
 }
 
-// TestCase represents an individual dataset variation (valid, boundary, fuzzing, security).
+// TestCase represents a specific input dataset variation executed against a Step's
+// endpoint, such as an LLM-synthesized business case (`ai_business_valid`,
+// `ai_business_boundary`) or a deterministic Go case (`go_fuzzing`, `go_security`).
 type TestCase struct {
 	ID      string        `yaml:"id" json:"id"`
 	Name    string        `yaml:"name" json:"name"`
@@ -63,7 +73,9 @@ type TestCase struct {
 	Assert  AssertionRule `yaml:"assert" json:"assert"`
 }
 
-// AssertionRule represents the multi-tier verification rules for a step or test case.
+// AssertionRule defines the verification expectations evaluated against an HTTP response,
+// spanning HTTP status codes, latency SLAs, JSON schema conformance, forbidden sensitive
+// keys, and domain-specific JSONPath expressions.
 type AssertionRule struct {
 	Status       int      `yaml:"status" json:"status"`
 	MaxLatencyMs int      `yaml:"max_latency_ms,omitempty" json:"max_latency_ms,omitempty"`

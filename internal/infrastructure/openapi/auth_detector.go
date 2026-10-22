@@ -10,7 +10,8 @@ var (
 	tokenConsumerRegex = regexp.MustCompile(`(?i)/(admin|me|profile|orders|checkout|cart|payment|account|users)`)
 )
 
-// AuthTopology summarizes the authentication producers and consumers detected at 0 tokens.
+// AuthTopology summarizes the authentication producer endpoint, extracted token JSONPath,
+// and downstream consumer paths discovered deterministically from an OpenAPI specification.
 type AuthTopology struct {
 	ProducerEndpoint string   `json:"producer_endpoint"`
 	ProducerMethod   string   `json:"producer_method"`
@@ -18,7 +19,13 @@ type AuthTopology struct {
 	ConsumerPaths    []string `json:"consumer_paths"`
 }
 
-// ApplyAuthDetection runs the 2-Tier Zero-Token Auth Detector across all operations in a spec.
+// ApplyAuthDetection inspects all normalized operations using a two-tier heuristic:
+//  1. Explicit OpenAPI `security` declarations and `Authorization` header parameters.
+//  2. Path regex patterns identifying token producers (e.g. `/auth/login`, `/oauth/token`)
+//     and protected resource consumers.
+//
+// It mutates `IsTokenProducer` and `RequiresAuth` on the provided operations slice in place
+// and returns the discovered AuthTopology.
 func ApplyAuthDetection(spec *OpenAPISpec, ops []NormalizedOperation) AuthTopology {
 	globalHasSecurity := len(spec.Security) > 0
 	topology := AuthTopology{
@@ -28,7 +35,6 @@ func ApplyAuthDetection(spec *OpenAPISpec, ops []NormalizedOperation) AuthTopolo
 	for i := range ops {
 		op := &ops[i]
 
-		// Tier 2 Regex: Is this endpoint a Token Producer?
 		if (op.Method == "POST" || op.Method == "GET") && tokenProducerRegex.MatchString(op.Endpoint) {
 			op.IsTokenProducer = true
 			op.RequiresAuth = false
@@ -40,7 +46,6 @@ func ApplyAuthDetection(spec *OpenAPISpec, ops []NormalizedOperation) AuthTopolo
 			continue
 		}
 
-		// Tier 1 OpenAPI Security tags
 		rawOp := lookupRawOp(spec, op.Endpoint, op.Method)
 		hasExplicitSecurity := rawOp != nil && len(rawOp.Security) > 0
 		hasExplicitAuthHeader := false
@@ -53,7 +58,6 @@ func ApplyAuthDetection(spec *OpenAPISpec, ops []NormalizedOperation) AuthTopolo
 			}
 		}
 
-		// Tier 2 Regex: Is this endpoint a Token Consumer?
 		matchesConsumerRegex := tokenConsumerRegex.MatchString(op.Endpoint)
 
 		if hasExplicitSecurity || hasExplicitAuthHeader || globalHasSecurity || matchesConsumerRegex {
@@ -65,6 +69,7 @@ func ApplyAuthDetection(spec *OpenAPISpec, ops []NormalizedOperation) AuthTopolo
 	return topology
 }
 
+// lookupRawOp retrieves the unpruned RawOp from the parsed OpenAPISpec for a given path and HTTP method.
 func lookupRawOp(spec *OpenAPISpec, path, method string) *RawOp {
 	if spec == nil {
 		return nil
@@ -82,6 +87,9 @@ func lookupRawOp(spec *OpenAPISpec, path, method string) *RawOp {
 	return nil
 }
 
+// detectTokenField inspects the 200/201 response schema of a token producer operation
+// to infer the JSONPath expression (such as `$.data.access_token` or `$.token`) where
+// the issued authentication token resides.
 func detectTokenField(respSchemas map[string]SchemaObject) string {
 	schema, ok := respSchemas["200"]
 	if !ok {

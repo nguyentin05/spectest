@@ -1,3 +1,6 @@
+// Package config implements the `spectest config` CLI subcommands (`init`, `set`, `list`)
+// for managing LLM provider settings. API keys are only accepted through a hidden prompt
+// or environment variables and are never passed as command-line arguments.
 package config
 
 import (
@@ -16,6 +19,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// initOptions holds the non-secret flag values accepted by `spectest config init`.
 type initOptions struct {
 	provider string
 	model    string
@@ -45,6 +49,9 @@ API keys are read interactively with terminal echo disabled and are never passed
 	return cmd
 }
 
+// newInitCmd creates `spectest config init`. With `--provider/--endpoint/--model` flags it
+// saves those values directly and only prompts for the API key when stdin is a terminal;
+// without flags it runs an `aws configure`-style prompt showing current values in brackets.
 func newInitCmd(f *cmdutil.Factory) *cobra.Command {
 	opts := &initOptions{}
 
@@ -157,6 +164,8 @@ func newInitCmd(f *cmdutil.Factory) *cobra.Command {
 	return cmd
 }
 
+// newSetCmd creates `spectest config set <key> [value]`. `provider`, `endpoint`, and `model`
+// take their value as an argument; `api-key` rejects arguments and reads from a hidden prompt.
 func newSetCmd(f *cmdutil.Factory) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set [key] [value]",
@@ -219,6 +228,8 @@ func newSetCmd(f *cmdutil.Factory) *cobra.Command {
 	}
 }
 
+// newListCmd creates `spectest config list`, which prints the resolved provider, model,
+// endpoint, and a masked API key for the active configuration.
 func newListCmd(f *cmdutil.Factory) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
@@ -240,6 +251,7 @@ func newListCmd(f *cmdutil.Factory) *cobra.Command {
 	}
 }
 
+// defaultLabel returns val, or "None" when val is blank, for display in prompts and listings.
 func defaultLabel(val string) string {
 	if strings.TrimSpace(val) == "" {
 		return "None"
@@ -247,6 +259,7 @@ func defaultLabel(val string) string {
 	return val
 }
 
+// isTerminalReader reports whether in is an *os.File attached to an interactive terminal.
 func isTerminalReader(in io.Reader) bool {
 	f, ok := in.(*os.File)
 	return ok && isatty.IsTerminal(f.Fd())

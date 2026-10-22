@@ -1,3 +1,6 @@
+// Package openapi provides deterministic preprocessing for OpenAPI 3.x and Swagger 2.0
+// specifications, including schema pruning, local $ref resolution, authentication topology
+// detection, and domain tag chunking.
 package openapi
 
 import (
@@ -8,7 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// OpenAPISpec represents a parsed OpenAPI 3.x / Swagger 2.0 specification.
+// OpenAPISpec represents the subset of an OpenAPI 3.x / Swagger 2.0 document required
+// for endpoint normalization, schema resolution, and security analysis.
 type OpenAPISpec struct {
 	OpenAPI string `yaml:"openapi" json:"openapi"`
 	Info    struct {
@@ -27,7 +31,7 @@ type OpenAPISpec struct {
 	} `yaml:"components,omitempty" json:"components,omitempty"`
 }
 
-// RawOp represents a raw HTTP operation under a path in OpenAPI.
+// RawOp represents a raw HTTP method operation defined under an OpenAPI path item.
 type RawOp struct {
 	OperationID string                    `yaml:"operationId,omitempty" json:"operationId,omitempty"`
 	Summary     string                    `yaml:"summary,omitempty" json:"summary,omitempty"`
@@ -39,7 +43,7 @@ type RawOp struct {
 	Responses   map[string]ResponseObject `yaml:"responses,omitempty" json:"responses,omitempty"`
 }
 
-// ParameterObject represents path/query/header parameters.
+// ParameterObject represents a path, query, or header parameter in an OpenAPI operation.
 type ParameterObject struct {
 	Name     string       `yaml:"name" json:"name"`
 	In       string       `yaml:"in" json:"in"`
@@ -47,27 +51,29 @@ type ParameterObject struct {
 	Schema   SchemaObject `yaml:"schema,omitempty" json:"schema,omitempty"`
 }
 
-// RequestBodyObject represents the request body definition.
+// RequestBodyObject represents the request body definition of an OpenAPI operation.
 type RequestBodyObject struct {
 	Required bool                       `yaml:"required,omitempty" json:"required,omitempty"`
 	Content  map[string]MediaTypeObject `yaml:"content,omitempty" json:"content,omitempty"`
 }
 
-// ResponseObject represents a response definition.
+// ResponseObject represents a status-code response definition of an OpenAPI operation.
 type ResponseObject struct {
 	Description string                     `yaml:"description,omitempty" json:"description,omitempty"`
 	Content     map[string]MediaTypeObject `yaml:"content,omitempty" json:"content,omitempty"`
 }
 
-// MediaTypeObject holds the schema for a media type (e.g. application/json).
+// MediaTypeObject holds the JSON Schema associated with a MIME type (e.g. `application/json`).
 type MediaTypeObject struct {
 	Schema SchemaObject `yaml:"schema,omitempty" json:"schema,omitempty"`
 }
 
-// SchemaObject represents a JSON Schema within OpenAPI.
+// SchemaObject represents a JSON Schema definition within an OpenAPI document,
+// supporting recursive `$ref` resolution, nested object properties, array items,
+// and numeric/enum constraints.
 type SchemaObject struct {
 	Ref        string                  `yaml:"$ref,omitempty" json:"$ref,omitempty"`
-	Type       string                  `yaml:"type,omitempty" json:"type"`
+	Type       string                  `yaml:"type,omitempty" json:"type,omitempty"`
 	Format     string                  `yaml:"format,omitempty" json:"format,omitempty"`
 	Properties map[string]SchemaObject `yaml:"properties,omitempty" json:"properties,omitempty"`
 	Items      *SchemaObject           `yaml:"items,omitempty" json:"items,omitempty"`
@@ -78,7 +84,7 @@ type SchemaObject struct {
 	Example    interface{}             `yaml:"example,omitempty" json:"example,omitempty"`
 }
 
-// SecuritySchemeObject represents an OpenAPI security scheme.
+// SecuritySchemeObject represents an authentication scheme declared under `components.securitySchemes`.
 type SecuritySchemeObject struct {
 	Type         string `yaml:"type" json:"type"`
 	Scheme       string `yaml:"scheme,omitempty" json:"scheme,omitempty"`
@@ -87,7 +93,8 @@ type SecuritySchemeObject struct {
 	In           string `yaml:"in,omitempty" json:"in,omitempty"`
 }
 
-// NormalizedOperation is a pruned, resolved operation ready for chunking and scenario generation.
+// NormalizedOperation is a flattened, self-contained representation of a single API endpoint
+// with all `$ref` schemas inlined and authentication flags resolved, ready for LLM prompting.
 type NormalizedOperation struct {
 	Method          string                  `yaml:"method" json:"method"`
 	Endpoint        string                  `yaml:"endpoint" json:"endpoint"`
@@ -100,7 +107,8 @@ type NormalizedOperation struct {
 	ResponseSchemas map[string]SchemaObject `yaml:"response_schemas,omitempty" json:"response_schemas,omitempty"`
 }
 
-// PruneResult holds the pruned operations and compression telemetry.
+// PruneResult holds the normalized operations extracted from an OpenAPI specification
+// alongside byte-size telemetry used to report context compression savings.
 type PruneResult struct {
 	Title            string
 	Version          string
@@ -111,7 +119,8 @@ type PruneResult struct {
 	CompressionRatio float64
 }
 
-// ParseRawSpec parses raw YAML/JSON bytes into an OpenAPISpec struct.
+// ParseRawSpec unmarshals raw YAML or JSON bytes into an OpenAPISpec structure
+// and validates that at least one API path is defined.
 func ParseRawSpec(data []byte) (*OpenAPISpec, error) {
 	var spec OpenAPISpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
@@ -123,8 +132,9 @@ func ParseRawSpec(data []byte) (*OpenAPISpec, error) {
 	return &spec, nil
 }
 
-// PruneSpec strips verbose descriptions, resolves local $ref schemas, removes unused schemas,
-// and returns normalized operations along with token compression statistics.
+// PruneSpec parses an OpenAPI document, strips verbose descriptions and unused component
+// schemas, inlines local `#/components/schemas/` references up to a bounded recursion depth,
+// annotates operations with zero-token authentication flags, and computes the compression ratio.
 func PruneSpec(data []byte) (*PruneResult, error) {
 	spec, err := ParseRawSpec(data)
 	if err != nil {
@@ -210,8 +220,8 @@ func PruneSpec(data []byte) (*PruneResult, error) {
 	}, nil
 }
 
-// SynthesizeSamplePayload builds a default JSON object payload from a resolved SchemaObject
-// using schema examples, enums, minimum constraints, or primitive type defaults.
+// SynthesizeSamplePayload constructs a baseline JSON object map from a resolved SchemaObject
+// by inspecting property examples, enum values, minimum constraints, or primitive types.
 func SynthesizeSamplePayload(schema SchemaObject) map[string]interface{} {
 	payload := make(map[string]interface{})
 	for propName, prop := range schema.Properties {
@@ -220,6 +230,7 @@ func SynthesizeSamplePayload(schema SchemaObject) map[string]interface{} {
 	return payload
 }
 
+// synthesizePropertyValue derives a representative value for a single schema property.
 func synthesizePropertyValue(name string, prop SchemaObject) interface{} {
 	if prop.Example != nil {
 		return prop.Example
@@ -254,6 +265,8 @@ func synthesizePropertyValue(name string, prop SchemaObject) interface{} {
 	}
 }
 
+// resolveSchema recursively expands local `#/components/schemas/<Name>` references up to
+// depth 5 to produce an inline SchemaObject free of external component pointers.
 func resolveSchema(s SchemaObject, components map[string]SchemaObject, depth int) SchemaObject {
 	if depth > 5 {
 		return s
@@ -292,6 +305,8 @@ func resolveSchema(s SchemaObject, components map[string]SchemaObject, depth int
 	return out
 }
 
+// truncateSummary condenses an operation's summary or description into a single line
+// capped at 100 characters to minimize prompt token consumption.
 func truncateSummary(summary, desc string) string {
 	text := strings.TrimSpace(summary)
 	if text == "" {
@@ -306,6 +321,8 @@ func truncateSummary(summary, desc string) string {
 	return text
 }
 
+// synthesizeOperationID generates a deterministic snake_case operation identifier from
+// the HTTP method and URL path when an explicit `operationId` is absent in the spec.
 func synthesizeOperationID(method, path string) string {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	var clean []string

@@ -1,3 +1,5 @@
+// Package llm implements the unified HTTP Chat Completions client and provider
+// factory used to communicate with cloud and self-hosted Large Language Models.
 package llm
 
 import (
@@ -11,8 +13,8 @@ import (
 	"time"
 )
 
-// Client implements domain.LLMService using the standard HTTP Chat Completions protocol
-// supported across cloud and self-hosted LLM providers.
+// Client implements domain.LLMService using the standard HTTP `/v1/chat/completions`
+// protocol supported across cloud APIs and self-hosted inference servers.
 type Client struct {
 	provider   string
 	endpoint   string
@@ -21,7 +23,9 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// NewClient creates a new unified LLM client with the configured provider, endpoint, API key, and model.
+// NewClient constructs a unified LLM Client for the given provider identifier,
+// base endpoint URL, optional API key, and model name. If the endpoint does not
+// already end with `/v1`, it is normalized automatically.
 func NewClient(provider, endpoint, apiKey, model string) *Client {
 	ep := strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	if ep != "" && !strings.HasSuffix(ep, "/v1") && !strings.Contains(ep, "/v1/") {
@@ -36,12 +40,14 @@ func NewClient(provider, endpoint, apiKey, model string) *Client {
 	}
 }
 
-// Name returns the provider, model, and endpoint summary.
+// Name returns a formatted `<provider>/<model> (<endpoint>)` summary string.
 func (c *Client) Name() string {
 	return fmt.Sprintf("%s/%s (%s)", c.provider, c.model, c.endpoint)
 }
 
-// GenerateStructured sends a chat completion request to <endpoint>/chat/completions.
+// GenerateStructured dispatches a low-temperature (`0.1`) chat completion request
+// containing the system instruction and user prompt to `<endpoint>/chat/completions`,
+// strips surrounding Markdown code fences if present, and returns the raw JSON string.
 func (c *Client) GenerateStructured(ctx context.Context, systemPrompt string, userPrompt string, _ interface{}) (string, error) {
 	if c.endpoint == "" {
 		return "", fmt.Errorf("endpoint is not configured for provider %q", c.provider)
@@ -103,6 +109,7 @@ func (c *Client) GenerateStructured(ctx context.Context, systemPrompt string, us
 	return cleanJSONFence(parsed.Choices[0].Message.Content), nil
 }
 
+// cleanJSONFence strips optional Markdown ```json or ``` fences wrapped around LLM output.
 func cleanJSONFence(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "```json")
@@ -111,6 +118,7 @@ func cleanJSONFence(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// truncateStr caps a string at max characters and appends "..." when truncated.
 func truncateStr(s string, max int) string {
 	if len(s) <= max {
 		return s

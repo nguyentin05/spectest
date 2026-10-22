@@ -12,16 +12,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// YAMLRepository implements domain.SuiteRepository for reading and writing spectest.yaml files,
-// as well as exporting test coverage matrices and Postman collections.
+// YAMLRepository implements domain.SuiteRepository for reading and writing `spectest.yaml`
+// test suite files, as well as exporting Markdown coverage matrices and Postman v2.1 collections.
 type YAMLRepository struct{}
 
-// NewYAMLRepository creates a new YAMLRepository instance.
+// NewYAMLRepository creates a new stateless YAMLRepository instance.
 func NewYAMLRepository() *YAMLRepository {
 	return &YAMLRepository{}
 }
 
-// Load reads and unmarshals a spectest.yaml file from disk.
+// Load reads a `spectest.yaml` file from disk, unmarshals its YAML content into a
+// domain.TestSuiteFile, and defaults the schema version to `"1.0"` if omitted.
 func (r *YAMLRepository) Load(path string) (*domain.TestSuiteFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -37,7 +38,8 @@ func (r *YAMLRepository) Load(path string) (*domain.TestSuiteFile, error) {
 	return &suite, nil
 }
 
-// Save marshals and writes a TestSuiteFile to disk, creating parent directories if needed.
+// Save marshals a domain.TestSuiteFile into formatted 2-space indented YAML with a
+// header banner and writes it to disk, creating parent directories if needed.
 func (r *YAMLRepository) Save(path string, suite *domain.TestSuiteFile) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create parent dir for %s: %w", path, err)
@@ -65,7 +67,8 @@ func (r *YAMLRepository) Save(path string, suite *domain.TestSuiteFile) error {
 	return nil
 }
 
-// ExportTestMatrix generates a human-readable Markdown Test Coverage Matrix (test_matrix.md).
+// ExportTestMatrix generates a human-readable Markdown coverage matrix (`test_matrix.md`)
+// summarizing all scenarios, steps, hybrid test case variations, and assertion rules.
 func (r *YAMLRepository) ExportTestMatrix(path string, suite *domain.TestSuiteFile) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create dir for test matrix: %w", err)
@@ -189,7 +192,8 @@ type postmanURL struct {
 	Raw string `json:"raw"`
 }
 
-// ExportPostmanCollection exports the test suite into a Postman Collection v2.1 JSON file.
+// ExportPostmanCollection converts the scenarios and steps of a TestSuiteFile into
+// a Postman Collection v2.1 JSON file and writes it to disk at the given path.
 func (r *YAMLRepository) ExportPostmanCollection(path string, suite *domain.TestSuiteFile) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

@@ -1,3 +1,5 @@
+// Package generate implements the `spectest generate` CLI subcommand, which turns an
+// OpenAPI specification and optional Markdown PRD into a `spectest.yaml` test suite.
 package generate
 
 import (
@@ -11,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// options holds the parsed flag values for a single `spectest generate` invocation.
 type options struct {
 	apiPath   string
 	reqPath   string
@@ -19,7 +22,10 @@ type options struct {
 	enrich    bool
 }
 
-// NewCommand creates the `spectest generate` subcommand.
+// NewCommand creates the `spectest generate` subcommand and binds its flags:
+// `--api/-a` (required OpenAPI path), `--req/-r` (optional PRD path), `--output/-o`
+// (output directory, default ./tests), `--export/-e` (extra format such as postman),
+// and `--enrich`.
 func NewCommand(f *cmdutil.Factory) *cobra.Command {
 	opts := &options{
 		outputDir: "./tests",
@@ -47,6 +53,8 @@ synthesize hybrid test datasets, and produce structured spectest.yaml and test_m
 	return cmd
 }
 
+// runGenerate validates flags, resolves the configured LLM service, executes the
+// generation usecase, and prints a plain-text summary of the produced artifacts to out.
 func runGenerate(ctx context.Context, out io.Writer, f *cmdutil.Factory, opts *options) error {
 	if strings.TrimSpace(opts.apiPath) == "" {
 		return fmt.Errorf("required flag --api (-a) is missing")

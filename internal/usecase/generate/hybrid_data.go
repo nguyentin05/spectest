@@ -8,8 +8,9 @@ import (
 	"github.com/nguyentin05/spectest/internal/infrastructure/openapi"
 )
 
-// EnrichStepWithHybridData augments an LLM-generated mutating Step with deterministic Go
-// boundary fuzzing (`go_fuzzing`) and security (`go_security`) test cases at zero token cost.
+// EnrichStepWithHybridData augments an LLM-generated mutating Step (`POST`, `PUT`, `PATCH`)
+// with deterministic Go boundary fuzzing (`go_fuzzing`) and security injection (`go_security`)
+// test cases at zero token cost, mutating step.TestCases in place.
 func EnrichStepWithHybridData(step *domain.Step, op openapi.NormalizedOperation) {
 	if op.IsTokenProducer || op.RequestSchema == nil || len(op.RequestSchema.Properties) == 0 {
 		return
@@ -74,6 +75,8 @@ func EnrichStepWithHybridData(step *domain.Step, op openapi.NormalizedOperation)
 	}
 }
 
+// extractBasePayload selects a template payload map from the step's request body,
+// its first existing test case payload, or a schema-synthesized sample object.
 func extractBasePayload(step *domain.Step, schema openapi.SchemaObject) map[string]interface{} {
 	if m, ok := step.Request.Body.(map[string]interface{}); ok && len(m) > 0 {
 		return cloneMap(m)
@@ -86,6 +89,7 @@ func extractBasePayload(step *domain.Step, schema openapi.SchemaObject) map[stri
 	return openapi.SynthesizeSamplePayload(schema)
 }
 
+// hasCaseType reports whether cases already contains a TestCase of the specified type.
 func hasCaseType(cases []domain.TestCase, caseType string) bool {
 	for _, tc := range cases {
 		if tc.Type == caseType {
@@ -95,6 +99,7 @@ func hasCaseType(cases []domain.TestCase, caseType string) bool {
 	return false
 }
 
+// cloneMap creates a shallow copy of a string-keyed payload map so mutations do not alias.
 func cloneMap(in map[string]interface{}) map[string]interface{} {
 	out := make(map[string]interface{}, len(in))
 	for k, v := range in {
