@@ -198,34 +198,34 @@ func TestGenerator_Execute_Success(t *testing.T) {
 	}
 
 	// Verify hybrid data enrichment on POST /pets
-	foundFuzz := false
-	foundSec := false
+	foundZero := false
+	foundEmpty := false
+	foundSQLi := false
+	foundXSS := false
 	for _, sc := range res.Suite.Base.Scenarios {
 		for _, st := range sc.Steps {
 			if st.Request.Endpoint == "/pets" && st.Request.Method == "POST" {
 				for _, tc := range st.TestCases {
-					if tc.Type == "go_fuzzing" {
-						foundFuzz = true
-						if tc.ID != "TC_GO_ZERO_BOUNDARY" {
-							t.Errorf("expected TC ID TC_GO_ZERO_BOUNDARY, got %s", tc.ID)
-						}
-					}
-					if tc.Type == "go_security" {
-						foundSec = true
-						if tc.ID != "TC_GO_SQL_INJECTION" {
-							t.Errorf("expected TC ID TC_GO_SQL_INJECTION, got %s", tc.ID)
-						}
+					switch tc.ID {
+					case "TC_GO_ZERO_BOUNDARY":
+						foundZero = true
+					case "TC_GO_EMPTY_STRING":
+						foundEmpty = true
+					case "TC_GO_SQL_INJECTION":
+						foundSQLi = true
+					case "TC_GO_XSS_INJECTION":
+						foundXSS = true
 					}
 				}
 			}
 		}
 	}
 
-	if !foundFuzz {
-		t.Errorf("expected POST /pets to be enriched with go_fuzzing test case")
+	if !foundZero || !foundEmpty {
+		t.Errorf("expected POST /pets to be enriched with go_fuzzing test cases, got zero=%v empty=%v", foundZero, foundEmpty)
 	}
-	if !foundSec {
-		t.Errorf("expected POST /pets to be enriched with go_security test case")
+	if !foundSQLi || !foundXSS {
+		t.Errorf("expected POST /pets to be enriched with go_security test cases, got sqli=%v xss=%v", foundSQLi, foundXSS)
 	}
 }
 
@@ -436,26 +436,26 @@ func TestEnrichStepWithHybridData(t *testing.T) {
 		}
 		EnrichStepWithHybridData(step, op)
 		if len(step.TestCases) != 1 {
-			t.Fatalf("expected 1 test case (fuzzing), got %d", len(step.TestCases))
+			t.Fatalf("expected 1 test case (zero boundary), got %d", len(step.TestCases))
 		}
-		tc := step.TestCases[0]
-		if tc.Type != "go_fuzzing" {
-			t.Errorf("expected type go_fuzzing, got %s", tc.Type)
+		tcZero := step.TestCases[0]
+		if tcZero.ID != "TC_GO_ZERO_BOUNDARY" || tcZero.Type != "go_fuzzing" {
+			t.Errorf("expected TC_GO_ZERO_BOUNDARY, got %+v", tcZero)
 		}
-		payload, ok := tc.Payload.(map[string]interface{})
+		payloadZero, ok := tcZero.Payload.(map[string]any)
 		if !ok {
-			t.Fatalf("expected payload to be map, got %T", tc.Payload)
+			t.Fatalf("expected payload to be map, got %T", tcZero.Payload)
 		}
-		if payload["count"] != 0 {
-			t.Errorf("expected count to be 0, got %v", payload["count"])
+		if payloadZero["count"] != 0 {
+			t.Errorf("expected count to be 0, got %v", payloadZero["count"])
 		}
-		arr, ok := payload["items"].([]interface{})
+		arr, ok := payloadZero["items"].([]any)
 		if !ok || len(arr) != 0 {
-			t.Errorf("expected empty array for items, got %v", payload["items"])
+			t.Errorf("expected empty array for items, got %v", payloadZero["items"])
 		}
 	})
 
-	t.Run("enriches string field with SQL injection", func(t *testing.T) {
+	t.Run("enriches string field with SQL injection and XSS", func(t *testing.T) {
 		step := &domain.Step{
 			Request: domain.RequestDef{
 				Method:   "PUT",
@@ -465,7 +465,7 @@ func TestEnrichStepWithHybridData(t *testing.T) {
 				{
 					ID:      "TC_EXISTING",
 					Type:    "positive",
-					Payload: map[string]interface{}{"bio": "Hello world"},
+					Payload: map[string]any{"bio": "Hello world"},
 				},
 			},
 		}
@@ -479,16 +479,35 @@ func TestEnrichStepWithHybridData(t *testing.T) {
 			},
 		}
 		EnrichStepWithHybridData(step, op)
-		if len(step.TestCases) != 2 {
-			t.Fatalf("expected 2 test cases (1 existing + 1 sec), got %d", len(step.TestCases))
+		if len(step.TestCases) != 4 {
+			t.Fatalf("expected 4 test cases (1 existing + empty + sqli + xss), got %d", len(step.TestCases))
 		}
-		tc := step.TestCases[1]
-		if tc.Type != "go_security" {
-			t.Errorf("expected type go_security, got %s", tc.Type)
+
+		tcEmpty := step.TestCases[1]
+		if tcEmpty.ID != "TC_GO_EMPTY_STRING" || tcEmpty.Type != "go_fuzzing" {
+			t.Errorf("expected TC_GO_EMPTY_STRING, got %+v", tcEmpty)
 		}
-		payload := tc.Payload.(map[string]interface{})
-		if payload["bio"] != "' OR '1'='1" {
-			t.Errorf("expected injection string, got %v", payload["bio"])
+		payloadEmpty := tcEmpty.Payload.(map[string]any)
+		if payloadEmpty["bio"] != "" {
+			t.Errorf("expected empty bio, got %v", payloadEmpty["bio"])
+		}
+
+		tcSQLi := step.TestCases[2]
+		if tcSQLi.ID != "TC_GO_SQL_INJECTION" || tcSQLi.Type != "go_security" {
+			t.Errorf("expected TC_GO_SQL_INJECTION, got %+v", tcSQLi)
+		}
+		payloadSQLi := tcSQLi.Payload.(map[string]any)
+		if payloadSQLi["bio"] != "' OR '1'='1" {
+			t.Errorf("expected injection string, got %v", payloadSQLi["bio"])
+		}
+
+		tcXSS := step.TestCases[3]
+		if tcXSS.ID != "TC_GO_XSS_INJECTION" || tcXSS.Type != "go_security" {
+			t.Errorf("expected TC_GO_XSS_INJECTION, got %+v", tcXSS)
+		}
+		payloadXSS := tcXSS.Payload.(map[string]any)
+		if payloadXSS["bio"] != "<script>alert(1)</script>" {
+			t.Errorf("expected XSS string, got %v", payloadXSS["bio"])
 		}
 	})
 
@@ -497,7 +516,9 @@ func TestEnrichStepWithHybridData(t *testing.T) {
 			Request: domain.RequestDef{Method: "POST", Endpoint: "/items"},
 			TestCases: []domain.TestCase{
 				{ID: "TC_GO_ZERO_BOUNDARY", Type: "go_fuzzing"},
+				{ID: "TC_GO_EMPTY_STRING", Type: "go_fuzzing"},
 				{ID: "TC_GO_SQL_INJECTION", Type: "go_security"},
+				{ID: "TC_GO_XSS_INJECTION", Type: "go_security"},
 			},
 		}
 		op := openapi.NormalizedOperation{
@@ -511,7 +532,7 @@ func TestEnrichStepWithHybridData(t *testing.T) {
 			},
 		}
 		EnrichStepWithHybridData(step, op)
-		if len(step.TestCases) != 2 {
+		if len(step.TestCases) != 4 {
 			t.Errorf("expected no duplicate additions, got count %d", len(step.TestCases))
 		}
 	})
