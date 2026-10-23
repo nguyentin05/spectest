@@ -39,13 +39,13 @@ func EnrichStepWithHybridData(step *domain.Step, op openapi.NormalizedOperation)
 		}
 	}
 
-	// 1. Go Fuzzing: Zero/Empty Value Test Case (0 Tokens)
-	if numericField != "" && !hasCaseType(step.TestCases, "go_fuzzing") {
+	// 1. Go Fuzzing: Zero Boundary Value Test Case (0 Tokens)
+	if numericField != "" && !hasCaseID(step.TestCases, "TC_GO_ZERO_BOUNDARY") {
 		zeroPayload := cloneMap(basePayload)
 		zeroPayload[numericField] = 0
 		for k, prop := range op.RequestSchema.Properties {
 			if prop.Type == "array" {
-				zeroPayload[k] = []interface{}{}
+				zeroPayload[k] = []any{}
 			}
 		}
 		step.TestCases = append(step.TestCases, domain.TestCase{
@@ -59,8 +59,23 @@ func EnrichStepWithHybridData(step *domain.Step, op openapi.NormalizedOperation)
 		})
 	}
 
-	// 2. Go Security: SQL Injection Payload Test Case (0 Tokens)
-	if stringField != "" && !hasCaseType(step.TestCases, "go_security") {
+	// 2. Go Fuzzing: Empty String Value Test Case (0 Tokens)
+	if stringField != "" && !hasCaseID(step.TestCases, "TC_GO_EMPTY_STRING") {
+		emptyPayload := cloneMap(basePayload)
+		emptyPayload[stringField] = ""
+		step.TestCases = append(step.TestCases, domain.TestCase{
+			ID:      "TC_GO_EMPTY_STRING",
+			Name:    fmt.Sprintf("[Go Fuzzing] Empty string value on field %q", stringField),
+			Type:    "go_fuzzing",
+			Payload: emptyPayload,
+			Assert: domain.AssertionRule{
+				Status: 400,
+			},
+		})
+	}
+
+	// 3. Go Security: SQL Injection Payload Test Case (0 Tokens)
+	if stringField != "" && !hasCaseID(step.TestCases, "TC_GO_SQL_INJECTION") {
 		sqliPayload := cloneMap(basePayload)
 		sqliPayload[stringField] = "' OR '1'='1"
 		step.TestCases = append(step.TestCases, domain.TestCase{
@@ -73,16 +88,31 @@ func EnrichStepWithHybridData(step *domain.Step, op openapi.NormalizedOperation)
 			},
 		})
 	}
+
+	// 4. Go Security: Cross-Site Scripting (XSS) Payload Test Case (0 Tokens)
+	if stringField != "" && !hasCaseID(step.TestCases, "TC_GO_XSS_INJECTION") {
+		xssPayload := cloneMap(basePayload)
+		xssPayload[stringField] = "<script>alert(1)</script>"
+		step.TestCases = append(step.TestCases, domain.TestCase{
+			ID:      "TC_GO_XSS_INJECTION",
+			Name:    fmt.Sprintf("[Go Security] Cross-site scripting (XSS) payload on field %q", stringField),
+			Type:    "go_security",
+			Payload: xssPayload,
+			Assert: domain.AssertionRule{
+				Status: 400,
+			},
+		})
+	}
 }
 
 // extractBasePayload selects a template payload map from the step's request body,
 // its first existing test case payload, or a schema-synthesized sample object.
-func extractBasePayload(step *domain.Step, schema openapi.SchemaObject) map[string]interface{} {
-	if m, ok := step.Request.Body.(map[string]interface{}); ok && len(m) > 0 {
+func extractBasePayload(step *domain.Step, schema openapi.SchemaObject) map[string]any {
+	if m, ok := step.Request.Body.(map[string]any); ok && len(m) > 0 {
 		return cloneMap(m)
 	}
 	for _, tc := range step.TestCases {
-		if m, ok := tc.Payload.(map[string]interface{}); ok && len(m) > 0 {
+		if m, ok := tc.Payload.(map[string]any); ok && len(m) > 0 {
 			return cloneMap(m)
 		}
 	}
@@ -99,9 +129,19 @@ func hasCaseType(cases []domain.TestCase, caseType string) bool {
 	return false
 }
 
+// hasCaseID reports whether cases already contains a TestCase with the specified ID.
+func hasCaseID(cases []domain.TestCase, id string) bool {
+	for _, tc := range cases {
+		if tc.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // cloneMap creates a shallow copy of a string-keyed payload map so mutations do not alias.
-func cloneMap(in map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(in))
+func cloneMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
 	for k, v := range in {
 		out[k] = v
 	}

@@ -1,8 +1,19 @@
 package openapi
 
 import (
+	"regexp"
 	"strings"
 )
+
+var versionSegmentRegex = regexp.MustCompile(`(?i)^v[0-9]+(\.[0-9]+)?$`)
+
+func isTechnicalPrefix(seg string) bool {
+	lower := strings.ToLower(seg)
+	if lower == "api" || lower == "rest" || lower == "internal" || lower == "public" {
+		return true
+	}
+	return versionSegmentRegex.MatchString(lower)
+}
 
 // DomainChunk represents a cohesive group of normalized API operations sharing a common
 // OpenAPI domain tag or path prefix, paired with an optional authentication producer and
@@ -84,7 +95,7 @@ func primaryTag(op NormalizedOperation) string {
 	}
 	parts := strings.Split(strings.Trim(op.Endpoint, "/"), "/")
 	for _, p := range parts {
-		if p != "" && p != "api" && p != "v1" && p != "v2" && !strings.HasPrefix(p, "{") {
+		if p != "" && !isTechnicalPrefix(p) && !strings.HasPrefix(p, "{") {
 			return p
 		}
 	}

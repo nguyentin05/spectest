@@ -23,8 +23,8 @@ type OpenAPISpec struct {
 	Servers []struct {
 		URL string `yaml:"url" json:"url"`
 	} `yaml:"servers,omitempty" json:"servers,omitempty"`
-	Security   []map[string][]string            `yaml:"security,omitempty" json:"security,omitempty"`
-	Paths      map[string]map[string]RawOp      `yaml:"paths" json:"paths"`
+	Security   []map[string][]string       `yaml:"security,omitempty" json:"security,omitempty"`
+	Paths      map[string]map[string]RawOp `yaml:"paths" json:"paths"`
 	Components struct {
 		Schemas         map[string]SchemaObject         `yaml:"schemas,omitempty" json:"schemas,omitempty"`
 		SecuritySchemes map[string]SecuritySchemeObject `yaml:"securitySchemes,omitempty" json:"securitySchemes,omitempty"`
@@ -78,10 +78,10 @@ type SchemaObject struct {
 	Properties map[string]SchemaObject `yaml:"properties,omitempty" json:"properties,omitempty"`
 	Items      *SchemaObject           `yaml:"items,omitempty" json:"items,omitempty"`
 	Required   []string                `yaml:"required,omitempty" json:"required,omitempty"`
-	Enum       []interface{}           `yaml:"enum,omitempty" json:"enum,omitempty"`
+	Enum       []any                   `yaml:"enum,omitempty" json:"enum,omitempty"`
 	Minimum    *float64                `yaml:"minimum,omitempty" json:"minimum,omitempty"`
 	Maximum    *float64                `yaml:"maximum,omitempty" json:"maximum,omitempty"`
-	Example    interface{}             `yaml:"example,omitempty" json:"example,omitempty"`
+	Example    any                     `yaml:"example,omitempty" json:"example,omitempty"`
 }
 
 // SecuritySchemeObject represents an authentication scheme declared under `components.securitySchemes`.
@@ -152,7 +152,7 @@ func PruneSpec(data []byte) (*PruneResult, error) {
 	}
 	sort.Strings(paths)
 
-	methodOrder := []string{"post", "get", "put", "patch", "delete"}
+	var methodOrder = [5]string{"post", "get", "put", "patch", "delete"}
 	var ops []NormalizedOperation
 
 	for _, path := range paths {
@@ -222,8 +222,8 @@ func PruneSpec(data []byte) (*PruneResult, error) {
 
 // SynthesizeSamplePayload constructs a baseline JSON object map from a resolved SchemaObject
 // by inspecting property examples, enum values, minimum constraints, or primitive types.
-func SynthesizeSamplePayload(schema SchemaObject) map[string]interface{} {
-	payload := make(map[string]interface{})
+func SynthesizeSamplePayload(schema SchemaObject) map[string]any {
+	payload := make(map[string]any)
 	for propName, prop := range schema.Properties {
 		payload[propName] = synthesizePropertyValue(propName, prop)
 	}
@@ -231,7 +231,7 @@ func SynthesizeSamplePayload(schema SchemaObject) map[string]interface{} {
 }
 
 // synthesizePropertyValue derives a representative value for a single schema property.
-func synthesizePropertyValue(name string, prop SchemaObject) interface{} {
+func synthesizePropertyValue(name string, prop SchemaObject) any {
 	if prop.Example != nil {
 		return prop.Example
 	}
@@ -249,14 +249,14 @@ func synthesizePropertyValue(name string, prop SchemaObject) interface{} {
 		return true
 	case "array":
 		if prop.Items != nil {
-			return []interface{}{synthesizePropertyValue(name+"_item", *prop.Items)}
+			return []any{synthesizePropertyValue(name+"_item", *prop.Items)}
 		}
-		return []interface{}{}
+		return []any{}
 	case "object":
 		if len(prop.Properties) > 0 {
 			return SynthesizeSamplePayload(prop)
 		}
-		return map[string]interface{}{}
+		return map[string]any{}
 	default:
 		if prop.Format == "email" {
 			return "user@example.com"

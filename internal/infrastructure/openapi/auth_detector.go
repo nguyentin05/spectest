@@ -6,9 +6,31 @@ import (
 )
 
 var (
-	tokenProducerRegex = regexp.MustCompile(`(?i)/(auth|login|signin|token|oauth|session)`)
-	tokenConsumerRegex = regexp.MustCompile(`(?i)/(admin|me|profile|orders|checkout|cart|payment|account|users)`)
+	tokenProducerRegex   = regexp.MustCompile(`(?i)/(auth|login|signin|token|oauth|session)`)
+	tokenFieldCandidates = []string{
+		"access_token",
+		"jwt_token",
+		"token",
+		"id_token",
+		"accessToken",
+		"jwtToken",
+		"idToken",
+		"auth_token",
+		"authToken",
+	}
 )
+
+// isPublicEndpoint checks whether an endpoint path segment indicates a public health, docs, or status endpoint.
+func isPublicEndpoint(path string) bool {
+	lower := strings.ToLower(path)
+	for _, seg := range strings.Split(strings.Trim(lower, "/"), "/") {
+		switch seg {
+		case "health", "healthz", "ping", "ready", "metrics", "status", "docs", "swagger", "openapi", "public", "favicon.ico":
+			return true
+		}
+	}
+	return false
+}
 
 // AuthTopology summarizes the authentication producer endpoint, extracted token JSONPath,
 // and downstream consumer paths discovered deterministically from an OpenAPI specification.
@@ -32,17 +54,24 @@ func ApplyAuthDetection(spec *OpenAPISpec, ops []NormalizedOperation) AuthTopolo
 		TokenJSONPath: "$.data.access_token",
 	}
 
+	hasTokenProducer := false
 	for i := range ops {
 		op := &ops[i]
-
 		if (op.Method == "POST" || op.Method == "GET") && tokenProducerRegex.MatchString(op.Endpoint) {
 			op.IsTokenProducer = true
 			op.RequiresAuth = false
+			hasTokenProducer = true
 			if topology.ProducerEndpoint == "" {
 				topology.ProducerEndpoint = op.Endpoint
 				topology.ProducerMethod = op.Method
 				topology.TokenJSONPath = detectTokenField(op.ResponseSchemas)
 			}
+		}
+	}
+
+	for i := range ops {
+		op := &ops[i]
+		if op.IsTokenProducer {
 			continue
 		}
 
@@ -58,9 +87,9 @@ func ApplyAuthDetection(spec *OpenAPISpec, ops []NormalizedOperation) AuthTopolo
 			}
 		}
 
-		matchesConsumerRegex := tokenConsumerRegex.MatchString(op.Endpoint)
+		isPublic := isPublicEndpoint(op.Endpoint)
 
-		if hasExplicitSecurity || hasExplicitAuthHeader || globalHasSecurity || matchesConsumerRegex {
+		if hasExplicitSecurity || hasExplicitAuthHeader || globalHasSecurity || (hasTokenProducer && !isPublic) {
 			op.RequiresAuth = true
 			topology.ConsumerPaths = append(topology.ConsumerPaths, op.Endpoint)
 		}
@@ -88,8 +117,8 @@ func lookupRawOp(spec *OpenAPISpec, path, method string) *RawOp {
 }
 
 // detectTokenField inspects the 200/201 response schema of a token producer operation
-// to infer the JSONPath expression (such as `$.data.access_token` or `$.token`) where
-// the issued authentication token resides.
+// to infer the JSONPath expression where the issued authentication token resides, prioritizing
+// canonical field names (access_token, jwt_token, token, id_token) over arbitrary token fields.
 func detectTokenField(respSchemas map[string]SchemaObject) string {
 	schema, ok := respSchemas["200"]
 	if !ok {
@@ -99,19 +128,40 @@ func detectTokenField(respSchemas map[string]SchemaObject) string {
 		return "$.data.access_token"
 	}
 
-	if dataProp, hasData := schema.Properties["data"]; hasData {
+	dataProp, hasData := schema.Properties["data"]
+
+	// Pass 1: Check prioritized candidate names in strict order
+	for _, cand := range tokenFieldCandidates {
+		if hasData {
+			if _, exists := dataProp.Properties[cand]; exists {
+				return "$.data." + cand
+			}
+		}
+		if _, exists := schema.Properties[cand]; exists {
+			return "$." + cand
+		}
+	}
+
+	// Pass 2: Fallback to any property containing "token" or "jwt", excluding refresh/type/expiry
+	isIgnored := func(name string) bool {
+		lower := strings.ToLower(name)
+		return strings.Contains(lower, "refresh") || strings.Contains(lower, "expires") || strings.Contains(lower, "type")
+	}
+
+	if hasData {
 		for k := range dataProp.Properties {
 			lk := strings.ToLower(k)
-			if strings.Contains(lk, "token") || strings.Contains(lk, "jwt") {
+			if (strings.Contains(lk, "token") || strings.Contains(lk, "jwt")) && !isIgnored(lk) {
 				return "$.data." + k
 			}
 		}
 	}
 	for k := range schema.Properties {
 		lk := strings.ToLower(k)
-		if strings.Contains(lk, "token") || strings.Contains(lk, "jwt") {
+		if (strings.Contains(lk, "token") || strings.Contains(lk, "jwt")) && !isIgnored(lk) {
 			return "$." + k
 		}
 	}
+
 	return "$.data.access_token"
 }

@@ -321,9 +321,9 @@ func TestTruncateSummary(t *testing.T) {
 
 func TestSynthesizeOperationID(t *testing.T) {
 	tests := map[[2]string]string{
-		{"GET", "/api/v1/users/{id}"}:       "get_users_id",
-		{"POST", "/v2/order-items"}:         "post_order_items",
-		{"DELETE", "/"}:                     "delete_",
+		{"GET", "/api/v1/users/{id}"}: "get_users_id",
+		{"POST", "/v2/order-items"}:   "post_order_items",
+		{"DELETE", "/"}:               "delete_",
 	}
 	for in, want := range tests {
 		if got := synthesizeOperationID(in[0], in[1]); got != want {
