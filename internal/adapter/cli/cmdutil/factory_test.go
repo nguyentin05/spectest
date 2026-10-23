@@ -1,8 +1,10 @@
 package cmdutil
 
 import (
+	"path/filepath"
 	"testing"
 
+	"github.com/nguyentin05/spectest/internal/infrastructure/storage"
 	"github.com/spf13/pflag"
 )
 
@@ -52,7 +54,12 @@ func TestFactory_LLMService_Resolution(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "")
 		t.Setenv("GEMINI_API_KEY", "")
 
-		f := NewFactory()
+		tmpDir := t.TempDir()
+		emptyStore := storage.NewFileCredentialStoreWithPath(
+			filepath.Join(tmpDir, "credentials.yaml"),
+			filepath.Join(tmpDir, ".spectestrc.yaml"),
+		)
+		f := NewFactoryWith(emptyStore, nil)
 		_, err := f.LLMService()
 		if err == nil {
 			t.Fatal("expected LLMService to return error when provider is unconfigured")

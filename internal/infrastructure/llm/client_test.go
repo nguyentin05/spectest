@@ -11,11 +11,11 @@ import (
 
 func TestNewClient_NormalizesEndpoint(t *testing.T) {
 	tests := map[string]string{
-		"http://localhost:11434":     "http://localhost:11434/v1",
-		"http://localhost:11434/":    "http://localhost:11434/v1",
-		"https://api.openai.com/v1":  "https://api.openai.com/v1",
-		"https://host/openai/v1/x":   "https://host/openai/v1/x",
-		"":                           "",
+		"http://localhost:11434":    "http://localhost:11434/v1",
+		"http://localhost:11434/":   "http://localhost:11434/v1",
+		"https://api.openai.com/v1": "https://api.openai.com/v1",
+		"https://host/openai/v1/x":  "https://host/openai/v1/x",
+		"":                          "",
 	}
 	for in, want := range tests {
 		if got := NewClient("p", in, "", "m").endpoint; got != want {
@@ -139,10 +139,10 @@ func TestClient_GenerateStructured_Errors(t *testing.T) {
 
 func TestCleanJSONFence(t *testing.T) {
 	tests := map[string]string{
-		"{\"a\":1}":                 `{"a":1}`,
-		"```json\n{\"a\":1}\n```":   `{"a":1}`,
-		"```\n{\"a\":1}\n```":       `{"a":1}`,
-		"  \n{\"a\":1}\n  ":         `{"a":1}`,
+		"{\"a\":1}":               `{"a":1}`,
+		"```json\n{\"a\":1}\n```": `{"a":1}`,
+		"```\n{\"a\":1}\n```":     `{"a":1}`,
+		"  \n{\"a\":1}\n  ":       `{"a":1}`,
 	}
 	for in, want := range tests {
 		if got := cleanJSONFence(in); got != want {

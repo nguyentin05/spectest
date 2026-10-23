@@ -24,6 +24,14 @@ func NewFactory() *Factory {
 	return &Factory{}
 }
 
+// NewFactoryWith constructs a Factory with pre-configured stores, useful in tests.
+func NewFactoryWith(credStore *storage.FileCredentialStore, suiteRepo *storage.YAMLRepository) *Factory {
+	return &Factory{
+		credStore: credStore,
+		suiteRepo: suiteRepo,
+	}
+}
+
 // BindFlags registers global persistent flags (currently `--verbose`) on the given flag set,
 // typically the root command's PersistentFlags.
 func (f *Factory) BindFlags(flags *pflag.FlagSet) {
