@@ -1,0 +1,135 @@
+name: "SpecTest-AI Automated API Testing Action"
+description: "Run automated API contract, business logic, and security regression tests with SpecTest-AI"
+author: "Nguyen Trong Tin & SpecTest-AI Team"
+branding:
+  icon: "check-circle"
+  color: "blue"
+
+inputs:
+  version:
+    description: "SpecTest-AI version to use (e.g. 'v1.0.0' or 'latest')"
+    required: false
+    default: "latest"
+  test_file:
+    description: "Path to spectest.yaml scenario file"
+    required: false
+    default: "tests/spectest.yaml"
+  target_url:
+    description: "Target API base URL (overrides target_base_url in spectest.yaml)"
+    required: false
+    default: ""
+  compose_file:
+    description: "Path to docker-compose.yml for automated service lifecycle"
+    required: false
+    default: ""
+  gemini_api_key:
+    description: "Google Gemini API key for AI Defect Triage & smart generation"
+    required: false
+    default: ""
+  openai_api_key:
+    description: "OpenAI or OpenAI-compatible API key"
+    required: false
+    default: ""
+  report_dir:
+    description: "Directory to save test reports"
+    required: false
+    default: "reports"
+
+outputs:
+  junit_report:
+    description: "Path to generated JUnit XML report file"
+    value: "${{ steps.run-test.outputs.junit_report }}"
+  html_report:
+    description: "Path to generated HTML dashboard report file"
+    value: "${{ steps.run-test.outputs.html_report }}"
+  test_status:
+    description: "Exit status of the test execution (success or failure)"
+    value: "${{ steps.run-test.outputs.test_status }}"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up SpecTest-AI Binary
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        OS="$(echo "${RUNNER_OS:-linux}" | tr '[:upper:]' '[:lower:]')"
+        ARCH="$(echo "${RUNNER_ARCH:-x64}" | tr '[:upper:]' '[:lower:]')"
+
+        case "$ARCH" in
+          x64|amd64) ARCH="amd64" ;;
+          arm64|aarch64) ARCH="arm64" ;;
+          *) echo "Unsupported runner architecture: $ARCH" && exit 1 ;;
+        esac
+
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ] || [ -z "$VERSION" ]; then
+          VERSION="$(curl -sSL -H "Accept: application/vnd.github+json" https://api.github.com/repos/nguyentin05/spectest/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "v1.0.0")"
+        fi
+
+        echo "Installing SpecTest-AI $VERSION for $OS/$ARCH..."
+        INSTALL_DIR="$RUNNER_TEMP/spectest-bin"
+        mkdir -p "$INSTALL_DIR"
+
+        ARCHIVE_NAME="spectest_${VERSION#v}_${OS}_${ARCH}.tar.gz"
+        DOWNLOAD_URL="https://github.com/nguyentin05/spectest/releases/download/${VERSION}/${ARCHIVE_NAME}"
+        CHECKSUM_URL="https://github.com/nguyentin05/spectest/releases/download/${VERSION}/checksums.txt"
+
+        curl -sSL -o "$INSTALL_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL" || {
+          echo "Warning: Release asset not found online, attempting local build if Go is available..."
+          if command -v go >/dev/null 2>&1; then
+            go build -o "$INSTALL_DIR/spectest" ./cmd/spectest
+          else
+            echo "Error: Neither prebuilt binary nor Go compiler found."
+            exit 1
+          fi
+        }
+
+        if [ -f "$INSTALL_DIR/$ARCHIVE_NAME" ]; then
+          curl -sSL -o "$INSTALL_DIR/checksums.txt" "$CHECKSUM_URL" || true
+          if [ -f "$INSTALL_DIR/checksums.txt" ] && grep -q "$ARCHIVE_NAME" "$INSTALL_DIR/checksums.txt"; then
+            echo "Verifying SHA-256 checksum..."
+            (cd "$INSTALL_DIR" && grep "$ARCHIVE_NAME" checksums.txt | sha256sum --check)
+          fi
+          tar -xzf "$INSTALL_DIR/$ARCHIVE_NAME" -C "$INSTALL_DIR" spectest || true
+        fi
+
+        chmod +x "$INSTALL_DIR/spectest"
+        echo "$INSTALL_DIR" >> "$GITHUB_PATH"
+        echo "SpecTest-AI installed successfully."
+
+    - name: Execute SpecTest-AI Test Suite
+      id: run-test
+      shell: bash
+      env:
+        GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
+        SPECTEST_API_KEY: ${{ inputs.openai_api_key }}
+      run: |
+        CMD="spectest run -f '${{ inputs.test_file }}'"
+
+        if [ -n "${{ inputs.target_url }}" ]; then
+          CMD="$CMD -t '${{ inputs.target_url }}'"
+        fi
+
+        if [ -n "${{ inputs.compose_file }}" ]; then
+          CMD="$CMD --compose '${{ inputs.compose_file }}'"
+        fi
+
+        mkdir -p "${{ inputs.report_dir }}"
+
+        echo "Running: $CMD"
+        rc=0
+        eval "$CMD" || rc=$?
+
+        echo "junit_report=${{ inputs.report_dir }}/junit.xml" >> "$GITHUB_OUTPUT"
+        echo "html_report=${{ inputs.report_dir }}/report.html" >> "$GITHUB_OUTPUT"
+
+        if [ $rc -eq 0 ]; then
+          echo "test_status=success" >> "$GITHUB_OUTPUT"
+          echo "All tests passed successfully!"
+        else
+          echo "test_status=failure" >> "$GITHUB_OUTPUT"
+          echo "Test execution completed with failures (exit code: $rc)."
+          exit $rc
+        fi

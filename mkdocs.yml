@@ -1,0 +1,52 @@
+site_name: SpecTest-AI
+site_description: Autonomous AI Test Engineering Engine & GitHub Action
+site_author: Nguyen Trong Tin & SpecTest-AI Team
+site_url: https://nguyentin05.github.io/spectest/
+repo_name: nguyentin05/spectest
+repo_url: https://github.com/nguyentin05/spectest
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+
+nav:
+  - Overview: index.md
+  - Quick Start: quickstart.md
+  - Architecture: architecture.md

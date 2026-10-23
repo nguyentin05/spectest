@@ -1,0 +1,44 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "internal/**"
+      - ".github/workflows/benchmark.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "internal/**"
+      - ".github/workflows/benchmark.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Go Benchmark & Memory Allocation Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: go.mod
+          cache: true
+
+      - name: Run Go Benchmarks
+        shell: bash
+        run: |
+          mkdir -p reports
+          echo "==> Running benchmarks with memory allocation metrics..."
+          go test -bench=. -benchmem -run=^# ./... | tee reports/benchmark_output.txt
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: reports/benchmark_output.txt
+          retention-days: 14

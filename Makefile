@@ -1,4 +1,4 @@
-.PHONY: help install build run test vet lint format tidy clean
+.PHONY: help install build run test benchmark vet lint format tidy clean
 
 GO ?= go
 
@@ -17,6 +17,9 @@ run: ## Run the CLI directly
 
 test: ## Run Go tests
 	$(GO) test -race ./...
+
+benchmark: ## Run Go benchmarks with memory allocation metrics
+	$(GO) test -bench=. -benchmem -run=^# ./...
 
 vet: ## Run go vet
 	$(GO) vet ./...

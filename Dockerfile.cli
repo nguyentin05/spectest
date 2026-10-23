@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+# Release image for SpecTest CLI Engine & GitHub Action
+#
+# Multi-platform build from native Go builder without QEMU emulation:
+#   docker run --rm -v "$PWD:/workspace" ghcr.io/nguyentin05/spectest:latest run -f /workspace/spectest.yaml
+
+FROM --platform=$BUILDPLATFORM golang:1.25.0-alpine AS build
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
+    -ldflags "-s -w -X github.com/nguyentin05/spectest/internal/platform/buildinfo.version=${VERSION}" \
+    -o /out/spectest ./cmd/spectest
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+LABEL org.opencontainers.image.title="SpecTest" \
+      org.opencontainers.image.description="Autonomous AI Test Engineering Engine" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.source="https://github.com/nguyentin05/spectest"
+
+COPY --from=build /out/spectest /usr/local/bin/spectest
+
+USER nonroot:nonroot
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/spectest"]
+CMD ["--help"]

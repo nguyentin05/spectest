@@ -1,0 +1,89 @@
+name: Release & Marketplace Tag
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  goreleaser:
+    name: Build & Publish Release Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7.3.0
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  action-major-tag:
+    name: Update Marketplace Major Tag
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    env:
+      ACTION_MAJOR: v1
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Move Action Major Tag to Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$ACTION_MAJOR" "${{ github.sha }}"
+          git push --force origin "refs/tags/$ACTION_MAJOR"
+
+  image:
+    name: Publish Multi-Arch Container Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: Dockerfile.cli
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          tags: |
+            ghcr.io/nguyentin05/spectest:${{ github.ref_name }}
+            ghcr.io/nguyentin05/spectest:latest
+          labels: |
+            org.opencontainers.image.title=spectest
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/nguyentin05/spectest
+            org.opencontainers.image.licenses=Apache-2.0
+          provenance: true
+          sbom: true
