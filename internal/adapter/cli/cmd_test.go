@@ -21,7 +21,7 @@ func TestSpectestCmd_HelpAndSubcommands(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, sub := range []string{"generate", "config"} {
+	for _, sub := range []string{"generate", "run", "config"} {
 		if !strings.Contains(got, sub) {
 			t.Errorf("expected help output to list subcommand %q, got:\n%s", sub, got)
 		}
