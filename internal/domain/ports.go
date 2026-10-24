@@ -40,3 +40,11 @@ type CredentialStore interface {
 	// SetEndpoint persists the base API endpoint URL for the specified provider.
 	SetEndpoint(provider, endpoint string) error
 }
+
+// ServerLifecycleManager controls the startup, readiness verification, and teardown
+// of the target HTTP test server (e.g. existing server or Docker Compose environment).
+type ServerLifecycleManager interface {
+	// Up initializes the server environment (if needed) and blocks until the server is ready.
+	// It returns a teardown function that caller must invoke (e.g. defer teardown()) to clean up.
+	Up(ctx context.Context) (teardown func(), err error)
+}
