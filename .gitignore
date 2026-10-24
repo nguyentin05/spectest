@@ -23,6 +23,8 @@ docs/superpowers/
 .env.*
 !.env.example
 credentials.yaml
+.spectestrc.yaml
+.spectestrc*.yaml
 
 # Go workspace
 go.work

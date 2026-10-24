@@ -12,7 +12,7 @@ import (
 )
 
 // CredentialConfig represents the persistent YAML structure stored in
-// `~/.spectest/credentials.yaml` (global) or `./.spectestrc.yaml` (repository-local).
+// `~/.spectest/credentials.yaml` (global).
 type CredentialConfig struct {
 	DefaultProvider string                       `yaml:"default_provider,omitempty"`
 	DefaultModel    string                       `yaml:"default_model,omitempty"`
@@ -27,17 +27,15 @@ type ProviderCredEntry struct {
 	Model    string `yaml:"model,omitempty"`
 }
 
-// FileCredentialStore implements domain.CredentialStore using a 3-tier resolution order:
+// FileCredentialStore implements domain.CredentialStore using a 2-tier resolution order:
 //  1. Environment variables (`SPECTEST_*` or `<PROVIDER>_*`)
-//  2. Repository-local configuration (`./.spectestrc.yaml`)
-//  3. User-global configuration (`~/.spectest/credentials.yaml` with `0600` permissions)
+//  2. User-global configuration (`~/.spectest/credentials.yaml` with `0600` permissions)
 type FileCredentialStore struct {
 	globalPath string
-	localPath  string
 }
 
 // NewFileCredentialStore constructs a FileCredentialStore pointing to `~/.spectest/credentials.yaml`
-// for global storage and `./.spectestrc.yaml` for workspace-local overrides.
+// for global storage.
 func NewFileCredentialStore() *FileCredentialStore {
 	home, err := os.UserHomeDir()
 	globalPath := ".spectest/credentials.yaml"
@@ -46,16 +44,14 @@ func NewFileCredentialStore() *FileCredentialStore {
 	}
 	return &FileCredentialStore{
 		globalPath: globalPath,
-		localPath:  ".spectestrc.yaml",
 	}
 }
 
-// NewFileCredentialStoreWithPath constructs a FileCredentialStore with explicit global
-// and local file paths, enabling isolated unit testing without touching the user's home directory.
-func NewFileCredentialStoreWithPath(globalPath, localPath string) *FileCredentialStore {
+// NewFileCredentialStoreWithPath constructs a FileCredentialStore with an explicit global
+// file path, enabling isolated unit testing without touching the user's home directory.
+func NewFileCredentialStoreWithPath(globalPath string) *FileCredentialStore {
 	return &FileCredentialStore{
 		globalPath: globalPath,
-		localPath:  localPath,
 	}
 }
 
@@ -110,7 +106,7 @@ func (s *FileCredentialStore) saveGlobal(cfg *CredentialConfig) error {
 }
 
 // GetAPIKey resolves the API key for a provider by checking `SPECTEST_API_KEY`,
-// `<PROVIDER>_API_KEY`, the repository-local config, and finally the global credentials file.
+// `<PROVIDER>_API_KEY`, and finally the global credentials file.
 func (s *FileCredentialStore) GetAPIKey(provider string) (string, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
@@ -123,12 +119,6 @@ func (s *FileCredentialStore) GetAPIKey(provider string) (string, error) {
 	if provider != "" {
 		if key := os.Getenv(strings.ToUpper(provider) + "_API_KEY"); key != "" {
 			return key, nil
-		}
-	}
-
-	if localCfg, err := s.loadConfig(s.localPath); err == nil && localCfg != nil {
-		if entry, ok := localCfg.Providers[provider]; ok && entry.APIKey != "" {
-			return entry.APIKey, nil
 		}
 	}
 
@@ -159,7 +149,7 @@ func (s *FileCredentialStore) SetAPIKey(provider, key string) error {
 }
 
 // GetEndpoint resolves the base endpoint URL for a provider by checking `SPECTEST_ENDPOINT`,
-// `<PROVIDER>_ENDPOINT`, the repository-local config, and the global credentials file.
+// `<PROVIDER>_ENDPOINT`, and the global credentials file.
 func (s *FileCredentialStore) GetEndpoint(provider string) (string, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
@@ -172,12 +162,6 @@ func (s *FileCredentialStore) GetEndpoint(provider string) (string, error) {
 	if provider != "" {
 		if ep := os.Getenv(strings.ToUpper(provider) + "_ENDPOINT"); ep != "" {
 			return ep, nil
-		}
-	}
-
-	if localCfg, err := s.loadConfig(s.localPath); err == nil && localCfg != nil {
-		if entry, ok := localCfg.Providers[provider]; ok && entry.Endpoint != "" {
-			return entry.Endpoint, nil
 		}
 	}
 
@@ -207,14 +191,11 @@ func (s *FileCredentialStore) SetEndpoint(provider, endpoint string) error {
 	return s.saveGlobal(cfg)
 }
 
-// GetDefaultProvider resolves the active LLM provider identifier across `SPECTEST_PROVIDER`,
-// the repository-local config, and the global credentials file. Returns empty string if unset.
+// GetDefaultProvider resolves the active LLM provider identifier across `SPECTEST_PROVIDER`
+// and the global credentials file. Returns empty string if unset.
 func (s *FileCredentialStore) GetDefaultProvider() string {
 	if p := os.Getenv("SPECTEST_PROVIDER"); p != "" {
 		return strings.ToLower(strings.TrimSpace(p))
-	}
-	if localCfg, err := s.loadConfig(s.localPath); err == nil && localCfg != nil && localCfg.DefaultProvider != "" {
-		return strings.ToLower(strings.TrimSpace(localCfg.DefaultProvider))
 	}
 	if globalCfg, err := s.loadConfig(s.globalPath); err == nil && globalCfg != nil && globalCfg.DefaultProvider != "" {
 		return strings.ToLower(strings.TrimSpace(globalCfg.DefaultProvider))
@@ -244,14 +225,6 @@ func (s *FileCredentialStore) GetDefaultModel(provider string) string {
 	if provider != "" {
 		if m := os.Getenv(strings.ToUpper(provider) + "_MODEL"); m != "" {
 			return strings.TrimSpace(m)
-		}
-	}
-	if localCfg, err := s.loadConfig(s.localPath); err == nil && localCfg != nil {
-		if entry, ok := localCfg.Providers[provider]; ok && entry.Model != "" {
-			return entry.Model
-		}
-		if localCfg.DefaultModel != "" {
-			return localCfg.DefaultModel
 		}
 	}
 	if globalCfg, err := s.loadConfig(s.globalPath); err == nil && globalCfg != nil {

@@ -8,15 +8,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 
 	"github.com/mattn/go-isatty"
 	"github.com/nguyentin05/spectest/internal/adapter/cli/cmdutil"
 	"github.com/nguyentin05/spectest/internal/infrastructure/storage"
 	"github.com/spf13/cobra"
-	"golang.org/x/sys/unix"
+	"golang.org/x/term"
 )
 
 // initOptions holds the non-secret flag values accepted by `spectest config init`.
@@ -265,8 +263,10 @@ func isTerminalReader(in io.Reader) bool {
 	return ok && isatty.IsTerminal(f.Fd())
 }
 
-// readSecretLine reads a line from in with terminal ECHO disabled when in is a TTY,
-// preventing sensitive API keys from appearing on the terminal screen.
+// readSecretLine reads a secret from a terminal without echoing characters.
+// It uses golang.org/x/term for safe, cross-platform password entry without
+// leaking background goroutines. For non-terminal readers (e.g. tests or pipes),
+// it falls back to reading a single line.
 func readSecretLine(in io.Reader, out io.Writer, reader *bufio.Reader) (string, error) {
 	f, ok := in.(*os.File)
 	if !ok || !isatty.IsTerminal(f.Fd()) {
@@ -277,41 +277,10 @@ func readSecretLine(in io.Reader, out io.Writer, reader *bufio.Reader) (string, 
 		return strings.TrimSpace(line), nil
 	}
 
-	fd := int(f.Fd())
-	oldState, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	bytePassword, err := term.ReadPassword(int(f.Fd()))
+	fmt.Fprintln(out)
 	if err != nil {
-		line, readErr := reader.ReadString('\n')
-		if readErr != nil && readErr != io.EOF {
-			return "", readErr
-		}
-		return strings.TrimSpace(line), nil
-	}
-
-	newState := *oldState
-	newState.Lflag &^= unix.ECHO
-	newState.Lflag |= unix.ICANON | unix.ISIG
-	newState.Iflag |= unix.ICRNL
-	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &newState); err != nil {
 		return "", err
 	}
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	defer func() {
-		signal.Stop(sigCh)
-		_ = unix.IoctlSetTermios(fd, unix.TCSETS, oldState)
-		fmt.Fprintln(out)
-	}()
-	go func() {
-		if _, ok := <-sigCh; ok {
-			_ = unix.IoctlSetTermios(fd, unix.TCSETS, oldState)
-			os.Exit(130)
-		}
-	}()
-
-	line, err := reader.ReadString('\n')
-	if err != nil && err != io.EOF {
-		return "", err
-	}
-	return strings.TrimSpace(line), nil
+	return strings.TrimSpace(string(bytePassword)), nil
 }

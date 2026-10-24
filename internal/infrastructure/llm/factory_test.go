@@ -19,7 +19,6 @@ func newIsolatedStore(t *testing.T) *storage.FileCredentialStore {
 	dir := t.TempDir()
 	return storage.NewFileCredentialStoreWithPath(
 		filepath.Join(dir, "credentials.yaml"),
-		filepath.Join(dir, ".spectestrc.yaml"),
 	)
 }
 

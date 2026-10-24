@@ -2,15 +2,111 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/nguyentin05/spectest/internal/domain"
 	"gopkg.in/yaml.v3"
 )
+
+// isInsideDir checks whether target is equal to or resides inside the parent directory.
+func isInsideDir(parent, target string) bool {
+	parent = filepath.Clean(parent)
+	target = filepath.Clean(target)
+	rel, err := filepath.Rel(parent, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))
+}
+
+// isWindowsReservedName checks if a file name matches Windows-reserved device names
+// (CON, PRN, AUX, NUL, COM1-COM9, LPT1-LPT9), regardless of file extension.
+func isWindowsReservedName(path string) bool {
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	name := strings.ToUpper(strings.TrimSuffix(base, ext))
+	switch name {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		return true
+	default:
+		return false
+	}
+}
+
+// sanitizeFilePath validates and cleans a filesystem destination path.
+// It cleans relative components and rejects paths attempting to access or overwrite protected system directories
+// across Linux, macOS, and Windows environments.
+func sanitizeFilePath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", errors.New("file path cannot be empty")
+	}
+	clean := filepath.Clean(trimmed)
+	if clean == "." || clean == string(filepath.Separator) || clean == "/" || clean == "\\" {
+		return "", fmt.Errorf("invalid file path %q", path)
+	}
+
+	// Check Windows-style drive root (e.g. "C:", "C:\", "D:/") even if running on non-Windows host
+	if len(clean) >= 2 && clean[1] == ':' && ((clean[0] >= 'a' && clean[0] <= 'z') || (clean[0] >= 'A' && clean[0] <= 'Z')) {
+		rest := clean[2:]
+		if rest == "" || rest == "/" || rest == "\\" || rest == string(filepath.Separator) {
+			return "", fmt.Errorf("file path cannot be root volume %q", path)
+		}
+	}
+
+	if vol := filepath.VolumeName(clean); vol != "" {
+		if clean == vol || clean == vol+string(filepath.Separator) || clean == vol+"/" || clean == vol+"\\" {
+			return "", fmt.Errorf("file path cannot be root volume %q", path)
+		}
+	}
+
+	if isWindowsReservedName(clean) {
+		return "", fmt.Errorf("file path %q uses a reserved device name", path)
+	}
+
+	abs, err := filepath.Abs(clean)
+	if err == nil {
+		var criticalDirs []string
+		if runtime.GOOS == "windows" {
+			for _, envVar := range []string{"SystemRoot", "windir", "ProgramFiles", "ProgramFiles(x86)", "ProgramData"} {
+				if val := os.Getenv(envVar); val != "" {
+					criticalDirs = append(criticalDirs, filepath.Clean(val))
+				}
+			}
+			if vol := filepath.VolumeName(abs); vol != "" {
+				criticalDirs = append(criticalDirs,
+					filepath.Join(vol, "Windows"),
+					filepath.Join(vol, "Program Files"),
+					filepath.Join(vol, "Program Files (x86)"),
+					filepath.Join(vol, "ProgramData"),
+				)
+			}
+		} else {
+			criticalDirs = []string{
+				"/etc", "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/boot", "/sys", "/proc", "/dev",
+			}
+			if runtime.GOOS == "darwin" {
+				criticalDirs = append(criticalDirs, "/System", "/Library", "/private/etc")
+			}
+		}
+
+		for _, dir := range criticalDirs {
+			if isInsideDir(dir, abs) {
+				return "", fmt.Errorf("path %q targets protected system directory %s", path, dir)
+			}
+		}
+	}
+
+	return clean, nil
+}
 
 // YAMLRepository implements domain.SuiteRepository for reading and writing `spectest.yaml`
 // test suite files, as well as exporting Markdown coverage matrices and Postman v2.1 collections.
@@ -24,13 +120,17 @@ func NewYAMLRepository() *YAMLRepository {
 // Load reads a `spectest.yaml` file from disk, unmarshals its YAML content into a
 // domain.TestSuiteFile, and defaults the schema version to `"1.0"` if omitted.
 func (r *YAMLRepository) Load(path string) (*domain.TestSuiteFile, error) {
-	data, err := os.ReadFile(path)
+	cleanPath, err := sanitizeFilePath(path)
 	if err != nil {
-		return nil, fmt.Errorf("read suite file %s: %w", path, err)
+		return nil, fmt.Errorf("invalid suite path: %w", err)
+	}
+	data, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("read suite file %s: %w", cleanPath, err)
 	}
 	var suite domain.TestSuiteFile
 	if err := yaml.Unmarshal(data, &suite); err != nil {
-		return nil, fmt.Errorf("unmarshal suite yaml %s: %w", path, err)
+		return nil, fmt.Errorf("unmarshal suite yaml %s: %w", cleanPath, err)
 	}
 	if suite.Version == "" {
 		suite.Version = "1.0"
@@ -41,8 +141,12 @@ func (r *YAMLRepository) Load(path string) (*domain.TestSuiteFile, error) {
 // Save marshals a domain.TestSuiteFile into formatted 2-space indented YAML with a
 // header banner and writes it to disk, creating parent directories if needed.
 func (r *YAMLRepository) Save(path string, suite *domain.TestSuiteFile) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create parent dir for %s: %w", path, err)
+	cleanPath, err := sanitizeFilePath(path)
+	if err != nil {
+		return fmt.Errorf("invalid save path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cleanPath), 0o755); err != nil {
+		return fmt.Errorf("create parent dir for %s: %w", cleanPath, err)
 	}
 	if suite.Version == "" {
 		suite.Version = "1.0"
@@ -61,8 +165,8 @@ func (r *YAMLRepository) Save(path string, suite *domain.TestSuiteFile) error {
 	}
 	_ = enc.Close()
 
-	if err := os.WriteFile(path, []byte(buf.String()), 0o644); err != nil {
-		return fmt.Errorf("write suite file %s: %w", path, err)
+	if err := os.WriteFile(cleanPath, []byte(buf.String()), 0o644); err != nil {
+		return fmt.Errorf("write suite file %s: %w", cleanPath, err)
 	}
 	return nil
 }
@@ -70,7 +174,11 @@ func (r *YAMLRepository) Save(path string, suite *domain.TestSuiteFile) error {
 // ExportTestMatrix generates a human-readable Markdown coverage matrix (`test_matrix.md`)
 // summarizing all scenarios, steps, hybrid test case variations, and assertion rules.
 func (r *YAMLRepository) ExportTestMatrix(path string, suite *domain.TestSuiteFile) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	cleanPath, err := sanitizeFilePath(path)
+	if err != nil {
+		return fmt.Errorf("invalid matrix path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cleanPath), 0o755); err != nil {
 		return fmt.Errorf("create dir for test matrix: %w", err)
 	}
 
@@ -154,7 +262,7 @@ func (r *YAMLRepository) ExportTestMatrix(path string, suite *domain.TestSuiteFi
 		}
 	}
 
-	return os.WriteFile(path, []byte(sb.String()), 0o644)
+	return os.WriteFile(cleanPath, []byte(sb.String()), 0o644)
 }
 
 type postmanCollection struct {
@@ -195,7 +303,11 @@ type postmanURL struct {
 // ExportPostmanCollection converts the scenarios and steps of a TestSuiteFile into
 // a Postman Collection v2.1 JSON file and writes it to disk at the given path.
 func (r *YAMLRepository) ExportPostmanCollection(path string, suite *domain.TestSuiteFile) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	cleanPath, err := sanitizeFilePath(path)
+	if err != nil {
+		return fmt.Errorf("invalid postman path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cleanPath), 0o755); err != nil {
 		return err
 	}
 	var col postmanCollection
@@ -240,5 +352,5 @@ func (r *YAMLRepository) ExportPostmanCollection(path string, suite *domain.Test
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, out, 0o644)
+	return os.WriteFile(cleanPath, out, 0o644)
 }

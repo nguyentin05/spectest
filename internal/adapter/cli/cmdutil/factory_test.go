@@ -57,7 +57,6 @@ func TestFactory_LLMService_Resolution(t *testing.T) {
 		tmpDir := t.TempDir()
 		emptyStore := storage.NewFileCredentialStoreWithPath(
 			filepath.Join(tmpDir, "credentials.yaml"),
-			filepath.Join(tmpDir, ".spectestrc.yaml"),
 		)
 		f := NewFactoryWith(emptyStore, nil)
 		_, err := f.LLMService()

@@ -22,17 +22,16 @@ func clearLLMEnv(t *testing.T) {
 	}
 }
 
-func newTestStore(t *testing.T) (*FileCredentialStore, string, string) {
+func newTestStore(t *testing.T) (*FileCredentialStore, string) {
 	t.Helper()
 	clearLLMEnv(t)
 	dir := t.TempDir()
 	globalPath := filepath.Join(dir, ".spectest", "credentials.yaml")
-	localPath := filepath.Join(dir, ".spectestrc.yaml")
-	return NewFileCredentialStoreWithPath(globalPath, localPath), globalPath, localPath
+	return NewFileCredentialStoreWithPath(globalPath), globalPath
 }
 
 func TestFileCredentialStore_SaveAndResolve(t *testing.T) {
-	store, globalPath, _ := newTestStore(t)
+	store, globalPath := newTestStore(t)
 
 	if err := store.SetDefaultProvider("OpenAI"); err != nil {
 		t.Fatalf("SetDefaultProvider: %v", err)
@@ -73,7 +72,7 @@ func TestFileCredentialStore_SaveAndResolve(t *testing.T) {
 }
 
 func TestFileCredentialStore_EmptyWhenUnconfigured(t *testing.T) {
-	store, _, _ := newTestStore(t)
+	store, _ := newTestStore(t)
 
 	if got := store.GetDefaultProvider(); got != "" {
 		t.Errorf("GetDefaultProvider() = %q, want empty", got)
@@ -90,7 +89,7 @@ func TestFileCredentialStore_EmptyWhenUnconfigured(t *testing.T) {
 }
 
 func TestFileCredentialStore_EnvironmentOverrides(t *testing.T) {
-	store, _, _ := newTestStore(t)
+	store, _ := newTestStore(t)
 	if err := store.SetDefaultProvider("openai"); err != nil {
 		t.Fatal(err)
 	}
@@ -124,36 +123,8 @@ func TestFileCredentialStore_EnvironmentOverrides(t *testing.T) {
 	}
 }
 
-func TestFileCredentialStore_LocalConfigTakesPriorityOverGlobal(t *testing.T) {
-	store, _, localPath := newTestStore(t)
-	if err := store.SetDefaultProvider("openai"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SetEndpoint("openai", "http://global"); err != nil {
-		t.Fatal(err)
-	}
-
-	local := "default_provider: local\nproviders:\n  openai:\n    endpoint: http://local\n    api_key: local-key\n    model: local-model\n"
-	if err := os.WriteFile(localPath, []byte(local), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if p := store.GetDefaultProvider(); p != "local" {
-		t.Errorf("GetDefaultProvider() = %q, want local", p)
-	}
-	if ep, _ := store.GetEndpoint("openai"); ep != "http://local" {
-		t.Errorf("GetEndpoint() = %q, want http://local", ep)
-	}
-	if key, _ := store.GetAPIKey("openai"); key != "local-key" {
-		t.Errorf("GetAPIKey() = %q, want local-key", key)
-	}
-	if m := store.GetDefaultModel("openai"); m != "local-model" {
-		t.Errorf("GetDefaultModel() = %q, want local-model", m)
-	}
-}
-
 func TestFileCredentialStore_ValidationErrors(t *testing.T) {
-	store, _, _ := newTestStore(t)
+	store, _ := newTestStore(t)
 
 	if err := store.SetAPIKey("", "key"); err == nil {
 		t.Error("SetAPIKey without provider should fail")
@@ -335,5 +306,65 @@ func TestYAMLRepository_ExportPostmanCollection(t *testing.T) {
 	second := col.Item[0].Item[1].Request
 	if second.Body == nil || !strings.Contains(second.Body.Raw, "qty") {
 		t.Error("step without body should fall back to first test case payload")
+	}
+}
+
+func TestSanitizeFilePath(t *testing.T) {
+	// 1. Invalid empty, root, and dot paths across OS
+	for _, p := range []string{"", "   ", ".", "/", "\\", "C:", "C:\\", "D:/"} {
+		if _, err := sanitizeFilePath(p); err == nil {
+			t.Errorf("expected error for path %q, got nil", p)
+		}
+	}
+
+	// 2. Windows reserved device names
+	for _, p := range []string{"NUL", "nul.yaml", "CON.json", "aux.txt", "COM1", "lpt9.yaml"} {
+		if _, err := sanitizeFilePath(p); err == nil {
+			t.Errorf("expected rejection for Windows reserved name %q, got nil", p)
+		}
+	}
+
+	// 3. Critical system directory rejection
+	for _, p := range []string{"/etc/passwd", "/etc/shadow", "/bin/sh", "/sys/kernel", "/proc/cpuinfo"} {
+		if _, err := sanitizeFilePath(p); err == nil {
+			t.Errorf("expected rejection for critical path %q, got nil", p)
+		}
+	}
+
+	// 4. Valid safe paths
+	tmp := t.TempDir()
+	validPath := filepath.Join(tmp, "sub", "tests.yaml")
+	clean, err := sanitizeFilePath(validPath)
+	if err != nil {
+		t.Fatalf("unexpected error for safe path: %v", err)
+	}
+	if clean != validPath {
+		t.Errorf("clean = %q, want %q", clean, validPath)
+	}
+
+	// 5. isInsideDir edge cases
+	if !isInsideDir("/var/log", "/var/log/app/output.log") {
+		t.Error("expected /var/log/app/output.log to be inside /var/log")
+	}
+	if isInsideDir("/var/log", "/var/log_other") {
+		t.Error("expected /var/log_other not to be inside /var/log")
+	}
+	if !isInsideDir("/etc", "/etc") {
+		t.Error("expected /etc to be inside /etc")
+	}
+
+	// 6. Save/Load/Export rejection on unsafe paths
+	repo := NewYAMLRepository()
+	if err := repo.Save("/etc/spectest.yaml", sampleSuite()); err == nil {
+		t.Error("expected Save to reject /etc/spectest.yaml")
+	}
+	if _, err := repo.Load("/etc/spectest.yaml"); err == nil {
+		t.Error("expected Load to reject /etc/spectest.yaml")
+	}
+	if err := repo.ExportTestMatrix("/etc/matrix.md", sampleSuite()); err == nil {
+		t.Error("expected ExportTestMatrix to reject /etc/matrix.md")
+	}
+	if err := repo.ExportPostmanCollection("/etc/postman.json", sampleSuite()); err == nil {
+		t.Error("expected ExportPostmanCollection to reject /etc/postman.json")
 	}
 }

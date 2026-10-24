@@ -349,3 +349,12 @@ func TestBackoffDelay(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanJSONFence_AdvancedPreamble(t *testing.T) {
+	in := "Certainly! Here is your test scenario JSON:\n```json\n{\n  \"id\": \"SCN_1\"\n}\n```\nLet me know if you need anything else!"
+	got := cleanJSONFence(in)
+	want := "{\n  \"id\": \"SCN_1\"\n}"
+	if got != want {
+		t.Errorf("cleanJSONFence = %q, want %q", got, want)
+	}
+}

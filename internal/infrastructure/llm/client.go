@@ -135,7 +135,7 @@ func (c *Client) doRequest(ctx context.Context, systemPrompt, userPrompt string)
 
 	respData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", true, 0, fmt.Errorf("llm request to %s failed: %w", url, err)
+		return "", true, 0, fmt.Errorf("read response from %s: %w", url, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
@@ -246,13 +246,38 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// cleanJSONFence strips optional Markdown ```json or ``` fences wrapped around LLM output.
+// cleanJSONFence extracts the JSON object or array content from an LLM response string,
+// stripping surrounding Markdown code fences (```json ... ```) or conversational preamble/postamble.
 func cleanJSONFence(s string) string {
 	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
+
+	// If markdown code block exists, extract within the fence
+	if startIdx := strings.Index(s, "```json"); startIdx >= 0 {
+		inner := s[startIdx+len("```json"):]
+		if endIdx := strings.LastIndex(inner, "```"); endIdx >= 0 {
+			s = strings.TrimSpace(inner[:endIdx])
+		}
+	} else if startIdx := strings.Index(s, "```"); startIdx >= 0 {
+		inner := s[startIdx+len("```"):]
+		if endIdx := strings.LastIndex(inner, "```"); endIdx >= 0 {
+			s = strings.TrimSpace(inner[:endIdx])
+		}
+	}
+
+	// Find the outermost balanced JSON object `{ ... }` or array `[ ... ]`
+	firstObj := strings.Index(s, "{")
+	lastObj := strings.LastIndex(s, "}")
+	if firstObj >= 0 && lastObj > firstObj {
+		return s[firstObj : lastObj+1]
+	}
+
+	firstArr := strings.Index(s, "[")
+	lastArr := strings.LastIndex(s, "]")
+	if firstArr >= 0 && lastArr > firstArr {
+		return s[firstArr : lastArr+1]
+	}
+
+	return s
 }
 
 // truncateStr caps a string at max characters and appends "..." when truncated.
