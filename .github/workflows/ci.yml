@@ -89,34 +89,34 @@ jobs:
           echo "::warning::runtime heap corruption (golang/go#81238); measuring the suite again"
           go test -p 1 -count=1 ./... 2>&1 | tee "$RUNNER_TEMP/go-test-2.log"
 
-  # frontend:
-  #   name: Frontend
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 180
-  #   defaults:
-  #     run:
-  #       working-directory: web
-  #   steps:
-  #     - uses: actions/checkout@v7
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
 
-  #     - name: Set up Node.js
-  #       uses: actions/setup-node@v7
-  #       with:
-  #         node-version: 22
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
       
-  #     - name: Set up pnpm
-  #       uses: pnpm/action-setup@v6.1.0
-  #       with:
-  #         version: 9
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 9
 
-  #     - name: Install
-  #       run: pnpm install --frozen-lockfile
+      - name: Install
+        run: pnpm install --frozen-lockfile
 
-  #     - name: Test
-  #       run: pnpm test
+      - name: Test
+        run: pnpm test
 
-  #     - name: Typecheck
-  #       run: pnpm run typecheck
+      - name: Typecheck
+        run: pnpm run typecheck
 
-  #     - name: Build
-  #       run: pnpm build
+      - name: Build
+        run: pnpm build

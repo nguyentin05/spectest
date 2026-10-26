@@ -24,6 +24,26 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Build Web UI
+        shell: bash
+        run: |
+          if [ -d "web" ] && [ -f "web/package.json" ]; then
+            echo "Building Web UI assets..."
+            cd web
+            npm ci
+            npm run build
+            cd ..
+            mkdir -p internal/adapter/ui/dist
+            cp -r web/dist/* internal/adapter/ui/dist/
+          else
+            echo "No web directory found, skipping Web UI build."
+          fi
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7.3.0
         with:
