@@ -29,23 +29,27 @@ type LogFile struct {
 
 // BaseEntry is the initial suite snapshot.
 type BaseEntry struct {
-	At        string `yaml:"at" json:"at"`
-	By        string `yaml:"by" json:"by"`
-	Spectest  *Suite `yaml:"spectest" json:"spectest"`
-	AfterHash string `yaml:"after_hash" json:"after_hash"`
+	At               string     `yaml:"at" json:"at"`
+	By               string     `yaml:"by" json:"by"`
+	Spectest         *Suite     `yaml:"spectest" json:"spectest"`
+	AfterHash        string     `yaml:"after_hash" json:"after_hash"`
+	APICatalog       APICatalog `yaml:"api_catalog,omitempty" json:"api_catalog,omitempty"`
+	RequirementsHash string     `yaml:"requirements_hash,omitempty" json:"requirements_hash,omitempty"`
 }
 
 // UpdateEntry is one append-only history record. N starts at 1 and increases
 // without gaps. Trigger is only present on AI-authored entries.
 type UpdateEntry struct {
-	N         int        `yaml:"n" json:"n"`
-	At        string     `yaml:"at" json:"at"`
-	By        string     `yaml:"by" json:"by"`
-	Note      string     `yaml:"note,omitempty" json:"note,omitempty"`
-	Trigger   *Trigger   `yaml:"trigger,omitempty" json:"trigger,omitempty"`
-	Create    *CreateSet `yaml:"create,omitempty" json:"create,omitempty"`
-	Change    []Change   `yaml:"change,omitempty" json:"change,omitempty"`
-	AfterHash string     `yaml:"after_hash" json:"after_hash"`
+	N            int          `yaml:"n" json:"n"`
+	At           string       `yaml:"at" json:"at"`
+	By           string       `yaml:"by" json:"by"`
+	Note         string       `yaml:"note,omitempty" json:"note,omitempty"`
+	Trigger      *Trigger     `yaml:"trigger,omitempty" json:"trigger,omitempty"`
+	CatalogPatch APICatalog   `yaml:"catalog_patch,omitempty" json:"catalog_patch,omitempty"`
+	Impact       UpdateImpact `yaml:"impact,omitempty" json:"impact,omitempty"`
+	Create       *CreateSet   `yaml:"create,omitempty" json:"create,omitempty"`
+	Change       []Change     `yaml:"change,omitempty" json:"change,omitempty"`
+	AfterHash    string       `yaml:"after_hash" json:"after_hash"`
 }
 
 // Trigger describes the source changes that caused an AI update.
@@ -56,9 +60,10 @@ type Trigger struct {
 
 // OpenAPITrigger lists semantic API changes since the previous run.
 type OpenAPITrigger struct {
-	Added   []string `yaml:"added,omitempty" json:"added,omitempty"`
-	Changed []string `yaml:"changed,omitempty" json:"changed,omitempty"`
-	Removed []string `yaml:"removed,omitempty" json:"removed,omitempty"`
+	Added    []string `yaml:"added,omitempty" json:"added,omitempty"`
+	Changed  []string `yaml:"changed,omitempty" json:"changed,omitempty"`
+	Removed  []string `yaml:"removed,omitempty" json:"removed,omitempty"`
+	Restored []string `yaml:"restored,omitempty" json:"restored,omitempty"`
 }
 
 // RequirementsTrigger records the normalized requirements hashes before and after.
