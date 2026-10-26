@@ -1,8 +1,8 @@
 package generate
 
 import (
-	"slices"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/nguyentin05/spectest/internal/domain"

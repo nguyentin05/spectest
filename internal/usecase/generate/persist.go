@@ -1,8 +1,8 @@
 package generate
 
 import (
-	"maps"
 	"context"
+	"maps"
 	"path/filepath"
 	"strings"
 	"time"
@@ -23,12 +23,22 @@ const (
 
 // buildBaseEntry constructs the single base entry for spectest.log.yaml. The
 // suite snapshot is deep-cloned so later mutations cannot alter the log.
-func (g *Generator) buildBaseEntry(s *domain.Suite) domain.BaseEntry {
+func (g *Generator) buildBaseEntry(src *domain.SourceSet, s *domain.Suite) domain.BaseEntry {
+	catalog := make(domain.APICatalog, len(src.APIs))
+	for _, a := range src.APIs {
+		catalog[a.Key] = domain.APIState{Status: domain.StatusActive, Hash: a.Hash, Sig: a.Sig}
+	}
+	var reqHash string
+	if src.Requirements != nil {
+		reqHash = requirementsHash(src.Requirements.Raw)
+	}
 	return domain.BaseEntry{
-		At:        g.clock.Now().Format(time.RFC3339),
-		By:        "ai",
-		Spectest:  cloneSuite(s),
-		AfterHash: suiteHash(s),
+		At:               g.clock.Now().Format(time.RFC3339),
+		By:               "ai",
+		Spectest:         cloneSuite(s),
+		AfterHash:        suiteHash(s),
+		APICatalog:       catalog,
+		RequirementsHash: reqHash,
 	}
 }
 
@@ -98,7 +108,7 @@ func joinDisplayPath(dir, name string) string {
 	return "." + string(filepath.Separator) + joined
 }
 
-// buildInitialFileSet assembles the three files for a first run.
+// buildInitialFileSet assembles the files for a first run.
 func (g *Generator) buildInitialFileSet(
 	src *domain.SourceSet, suite *domain.Suite, mentions []domain.APIMention,
 ) *domain.FileSet {
@@ -106,7 +116,7 @@ func (g *Generator) buildInitialFileSet(
 	return &domain.FileSet{
 		Suite: normalized,
 		Log: &domain.LogFile{
-			Base:   g.buildBaseEntry(normalized),
+			Base:   g.buildBaseEntry(src, normalized),
 			Update: []domain.UpdateEntry{},
 		},
 		Track: buildTrack(src, nil, 0, mentions),

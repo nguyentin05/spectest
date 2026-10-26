@@ -126,7 +126,9 @@ func applyManagedBlocks(analysis string, ws []sourceWarning, as []assumption) st
 		})
 		b.WriteString("\n\n" + warningsStart + "\n## Source warnings\n")
 		for _, w := range sorted {
-			b.WriteString("- ");b.WriteString(w.Line);b.WriteString("\n")
+			b.WriteString("- ")
+			b.WriteString(w.Line)
+			b.WriteString("\n")
 		}
 		b.WriteString(warningsEnd)
 	}
@@ -144,7 +146,8 @@ func applyManagedBlocks(analysis string, ws []sourceWarning, as []assumption) st
 				}
 				line += " (evidence: " + strings.Join(quoted, "; ") + ")"
 			}
-			b.WriteString(line);b.WriteString("\n")
+			b.WriteString(line)
+			b.WriteString("\n")
 		}
 		b.WriteString(assumptionsEnd)
 	}

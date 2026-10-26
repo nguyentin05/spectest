@@ -51,7 +51,7 @@ func validateSuite(s *domain.Suite, src *domain.SourceSet, opts validationOption
 	res.Errors = append(res.Errors, validateSetupGraph(s)...)
 
 	apiLookup := buildAPILookup(s, src, opts.AllowStaleAPIs)
-	res.Errors = append(res.Errors, validateSemantics(s, apiLookup)...)
+	res.Errors = append(res.Errors, validateSemantics(s, apiLookup, opts)...)
 
 	covErrs, covWarns := validateCoverage(s, src, opts, apiLookup)
 	res.Errors = append(res.Errors, covErrs...)
@@ -110,7 +110,7 @@ func validateStructure(s *domain.Suite, opts validationOptions) []error {
 		seenAPIs[key] = struct{}{}
 	}
 
-	if !hasActiveScenario(s) {
+	if !opts.AllowStaleAPIs && !hasActiveScenario(s) {
 		errs = append(errs, fmt.Errorf("at least one scenario must be active (not locked or skipped)"))
 	}
 
@@ -191,6 +191,24 @@ func buildAPILookup(s *domain.Suite, src *domain.SourceSet, allowStale bool) map
 				out[key] = api
 			}
 		}
+		for _, setup := range s.Setup {
+			for _, step := range setup.Steps {
+				if _, ok, _ := matchAPI(out, step.Call); !ok {
+					if api, ok := apiFromKey(step.Call); ok {
+						out[api.Key] = api
+					}
+				}
+			}
+		}
+		for _, sc := range s.Scenarios {
+			for _, step := range sc.Steps {
+				if _, ok, _ := matchAPI(out, step.Call); !ok {
+					if api, ok := apiFromKey(step.Call); ok {
+						out[api.Key] = api
+					}
+				}
+			}
+		}
 	}
 	return out
 }
@@ -215,7 +233,11 @@ func apiFromKey(key string) (domain.API, bool) {
 // validateSemantics validates variables, bodies, statuses and saves. Setups are
 // walked in topo order so each setup's scope contains its dependencies' vars
 // and saves.
-func validateSemantics(s *domain.Suite, apiLookup map[string]domain.API) []error {
+func validateSemantics(s *domain.Suite, apiLookup map[string]domain.API, opts ...validationOptions) []error {
+	allowStale := false
+	if len(opts) > 0 {
+		allowStale = opts[0].AllowStaleAPIs
+	}
 	var errs []error
 
 	serverSet := make(map[string]struct{}, len(s.Servers))
@@ -271,6 +293,9 @@ func validateSemantics(s *domain.Suite, apiLookup map[string]domain.API) []error
 	}
 
 	for _, sc := range s.Scenarios {
+		if allowStale && sc.Skip != "" {
+			continue
+		}
 		for _, u := range sc.Setup {
 			if _, ok := s.Setup[u]; !ok {
 				errs = append(errs, fmt.Errorf("scenario %q uses unknown setup %q", sc.ID, u))

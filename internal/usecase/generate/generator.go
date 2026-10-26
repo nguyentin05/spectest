@@ -32,6 +32,7 @@ func NewGenerator(
 
 // Request is the input to Execute.
 type Request struct {
+	Mode             Mode
 	APIs             []domain.APIInput
 	RequirementsPath string
 	OutputDir        string
@@ -42,20 +43,40 @@ type Request struct {
 // Result is what the CLI prints.
 type Result struct {
 	Mode           Mode
+	UpdateN        int
+	SuiteChanged   bool
+	APIDiff        APIDiff
+	Impact         domain.UpdateImpact
+	PlannedActions []UpdateAction
+	LLMUsed        bool
 	Input          domain.InputMode
 	Servers        []string
 	APITotal       int
 	Warnings       []string
 	SuitePath      string
 	LogPath        string
-	TrackPath      string
 	NoFilesWritten bool
 }
 
-// Execute runs the entire v3 pipeline.
-// Flow khớp với sơ đồ: Chọn nguồn -> Parse OpenAPI -> Nhóm -> Notes -> Global plan ->
-// Outline -> Viết setup -> Viết scenario -> Coverage -> Analysis -> Ghép file.
+// Execute dispatches to the requested mode pipeline.
 func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
+	mode := req.Mode
+	if mode == "" {
+		mode = ModeInitial
+	}
+
+	switch mode {
+	case ModeInitial:
+		return g.executeInitial(ctx, req)
+	case ModeUpdate:
+		return g.executeUpdate(ctx, req)
+	default:
+		return nil, fmt.Errorf("unsupported generate mode %q", mode)
+	}
+}
+
+// executeInitial runs the full initial generation pipeline.
+func (g *Generator) executeInitial(ctx context.Context, req Request) (*Result, error) {
 	// ⓪ + ① CHỌN NGUỒN + PARSE OPENAPI
 	src, err := g.resolveSources(ctx, req)
 	if err != nil {
@@ -153,7 +174,7 @@ func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
 	files := g.buildInitialFileSet(src, suite, mentions)
 
 	// ⑪ PERSIST (Atomic write)
-	writeOpts := domain.WriteOptions{Suite: true, Log: true, Track: true, Mode: string(ModeInitial)}
+	writeOpts := domain.WriteOptions{Suite: true, Log: true, Track: false, Mode: string(ModeInitial)}
 	if err := g.persist(ctx, req, files, writeOpts); err != nil {
 		return nil, fmt.Errorf("persist: %w", err)
 	}
@@ -189,7 +210,6 @@ func (g *Generator) Execute(ctx context.Context, req Request) (*Result, error) {
 		Warnings:       uniqueWarns,
 		SuitePath:      joinDisplayPath(req.OutputDir, "spectest.yaml"),
 		LogPath:        joinDisplayPath(req.OutputDir, "spectest.log.yaml"),
-		TrackPath:      joinDisplayPath(req.OutputDir, "spectest.track.yaml"),
 		NoFilesWritten: req.DryRun,
 	}, nil
 }

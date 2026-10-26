@@ -108,25 +108,34 @@ func TestExecuteInitSmoke(t *testing.T) {
 	if store.opts[0].Mode != string(ModeInitial) {
 		t.Errorf("WriteOptions.Mode = %q, want %q", store.opts[0].Mode, ModeInitial)
 	}
-	if !store.opts[0].Suite || !store.opts[0].Log || !store.opts[0].Track {
-		t.Errorf("WriteOptions = %+v, want suite, log and track", store.opts[0])
+	if !store.opts[0].Suite || !store.opts[0].Log || store.opts[0].Track {
+		t.Errorf("WriteOptions = %+v, want suite and log true, track false", store.opts[0])
 	}
 
 	for _, name := range []string{
-		suitefile.SuiteFileName, suitefile.LogFileName, suitefile.TrackFileName,
+		suitefile.SuiteFileName, suitefile.LogFileName,
 	} {
 		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
 			t.Errorf("%s missing: %v", name, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(outDir, suitefile.TrackFileName)); !os.IsNotExist(err) {
+		t.Errorf("expected track file to NOT be created in 2-file architecture, got err: %v", err)
 	}
 
 	loaded, err := suitefile.NewStore().Load(context.Background(), outDir)
 	if err != nil {
 		t.Fatalf("load suite files: %v", err)
 	}
-	if loaded.Suite == nil || loaded.Log == nil || loaded.Track == nil {
-		t.Fatalf("loaded file set incomplete: suite=%v log=%v track=%v",
-			loaded.Suite != nil, loaded.Log != nil, loaded.Track != nil)
+	if loaded.Suite == nil || loaded.Log == nil {
+		t.Fatalf("loaded file set incomplete: suite=%v log=%v",
+			loaded.Suite != nil, loaded.Log != nil)
+	}
+	if len(loaded.Log.Base.APICatalog) == 0 {
+		t.Fatal("expected Base.APICatalog to be populated")
+	}
+	if state, ok := loaded.Log.Base.APICatalog["GET {default}/users"]; !ok || state.Status != domain.StatusActive {
+		t.Errorf("expected GET {default}/users in Base.APICatalog with active status, got: %+v", state)
 	}
 
 	suite := loaded.Suite
