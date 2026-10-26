@@ -1,41 +1,74 @@
-# Kiến trúc Hệ thống (System Architecture)
+# System Architecture
 
-SpecTest-AI được thiết kế tuân thủ nghiêm ngặt mô hình **Clean Architecture / Hexagonal Ports & Adapters** (học tập trực tiếp từ kiến trúc của dự án mã nguồn mở `synapse-ce`), phân chia theo **Quy tắc phụ thuộc (The Dependency Rule)**.
+SpecTest is built on **Clean Architecture** (Hexagonal / Ports & Adapters), adhering strictly to **The Dependency Rule**: source code dependencies always point inwards towards pure domain entities.
 
 ---
 
-## 1. Sơ đồ phân tầng kiến trúc
+## Architectural Layers
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  TẦNG NGOẠI VI (Driving & Driven Adapters)                  │
-│  ├── CLI & Presenter (adapter/cli, adapter/presenter)       │
-│  └── External Tech (llm, httpclient, docker, storage)       │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ (chỉ phụ thuộc vào UseCase & Ports)
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│  TẦNG NGHIỆP VỤ (UseCase - Interactors)                     │
-│  ├── generate/ : Pruning, Chunking, Sinh dữ liệu lai        │
-│  ├── run/      : Replay RAM, Chạy API, 4-Tier, AI Triage    │
-│  └── update/   : Oasdiff, Impact Analysis, Surgical Patch   │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ (chỉ phụ thuộc vào Domain)
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│  TẦNG LÕI BẤT BIẾN (Domain - Pure Go, 0 external imports)   │
-│  ├── Entities  : TestSuiteFile, Scenario, Step, TestCase    │
-│  └── Ports     : LLMService, HTTPRunner, SuiteRepo, ...     │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph DrivingAdapters["Driving Adapters (Input)"]
+        CLI["CLI Adapter\n(Cobra, cmdutil)"]
+        WebUI["Web UI Adapter\n(Embedded React SPA, SSE)"]
+        GitHubAction["CI/CD Action\n(action.yml)"]
+    end
+
+    subgraph UseCases["Use Case Interactors (Application Workflows)"]
+        GenUC["usecase/generate\n(Pruning, Chunking, Hybrid Synthesis)"]
+        RunUC["usecase/run\n(Setup DAG, Scope Isolation, 9-Step HTTP Engine, Triage)"]
+        UpdateUC["usecase/update\n(Spec Drift Impact Analysis, Surgical Patching)"]
+    end
+
+    subgraph Domain["Domain Layer (Enterprise Business Rules)"]
+        Entities["Entities & Models\n(Suite, Scenario, Setup, Step, LogFile, UpdateEntry)"]
+        Ports["Port Interfaces\n(LLMService, HTTPRunner, SuiteRepo, ServerLifecycle)"]
+    end
+
+    subgraph DrivenAdapters["Driven Adapters (Infrastructure Output)"]
+        LLMInfra["infrastructure/llm\n(Gemini, OpenAI, Ollama)"]
+        HTTPClient["HTTP Engine\n(Connection Pooling, Latency)"]
+        DockerInfra["infrastructure/server\n(Compose up/down, Healthcheck Probing)"]
+        SuiteFileInfra["infrastructure/suitefile\n(YAML Codec, Atomic Writing)"]
+        StorageInfra["infrastructure/storage\n(0600 POSIX Credential Vault)"]
+    end
+
+    DrivingAdapters --> UseCases
+    UseCases --> Domain
+    DrivenAdapters -.->|Implements| Ports
+    UseCases --> Ports
 ```
 
 ---
 
-## 2. 4-Tier Test Oracle
+## Layer Responsibilities
 
-Để kiểm thử toàn diện mà không phụ thuộc tốn kém vào token AI, SpecTest-AI áp dụng kim tự tháp kiểm chứng 4 tầng:
+### 1. Domain Layer (`internal/domain`)
+- **Pure Go**: Contains zero external imports, no YAML codecs, no HTTP clients, and no Docker code.
+- **Entities**:
+  - `Suite` (v1 schema) & `MutableSuite`: Captures the test suite contract (`servers`, `apis`, `analysis`, `seed`, `setup`, `scenarios`).
+  - `Scenario`: Executable business journey with stable kebab-case `id`, `setup` dependencies, and `steps`.
+  - `Setup`: Reusable pre-execution blocks declaring dependency sets via `use: [...]`.
+  - `Step`: Single HTTP call (`call`, `expect`, `headers`, `body`, `save`).
+  - `LogFile`, `BaseEntry`, `UpdateEntry`: Append-only history records tracking revisions and cryptographic hashes.
+- **Port Interfaces**: Contracts decoupling the domain from infrastructure (`LLMService`, `SuiteRepository`, `ServerLifecycleManager`).
 
-1. **Tier 1 (Status Oracle):** Kiểm tra mã trạng thái HTTP (200, 201, 400,...) khớp kỳ vọng.
-2. **Tier 2 (Schema & Security Oracle):** Kiểm tra cấu trúc phản hồi khớp JSON Schema và cấm tuyệt đối lọt các khóa nhạy cảm (`password_hash`, `salt`, `secret_key`).
-3. **Tier 3 (Business Logic Oracle):** Kiểm tra các biểu thức logic và giá trị chi tiết (ví dụ: `$.data.final_amount == 550000`).
-4. **Tier 4 (State Consistency Oracle):** Bắn request ghi dữ liệu (`POST /orders`) và thực hiện request đọc (`GET /orders/{id}`) để xác minh cơ sở dữ liệu backend thực sự được cập nhật nhất quán.
+### 2. Use Case Layer (`internal/usecase`)
+- **`generate`**: Coordinates OpenAPI pruning, context chunking, auth detection, LLM scenario synthesis, and incremental update mode (catalog reconstruction, deterministic diffing, impact graph resolution, contract repairs).
+- **`run`**: Orchestrates setup DAG resolution (`dag.go`), runtime scope isolation (`scope.go`), the 9-step single step execution pipeline (`step.go`), selection mode (`selection.go`), and AI defect triage (`triage.go`).
+
+### 3. Infrastructure Layer (`internal/infrastructure`)
+- **`suitefile`**: Canonical YAML codecs for `spectest.yaml` and `spectest.log.yaml`.
+- **`openapi`**: Deterministic pruner, OpenAPI chunker, and authentication detector.
+- **`llm`**: Multi-provider client abstraction supporting Google Gemini, OpenAI, and local Ollama instances.
+- **`server`**: Healthcheck probe loops and automated Docker Compose process lifecycle management.
+- **`storage`**: POSIX `0600` credential store.
+
+### 4. Adapter Layer (`internal/adapter`)
+- **`cli`**: Cobra commands (`spectest generate`, `run`, `config`, `ui`) providing flag parsing and stdout telemetry.
+- **`ui`**: Embedded HTTP server, SSE broadcaster, and static asset server delivering the React dashboard.
+
+### 5. Platform Layer (`internal/platform`)
+- **`atomicfile`**: Crash-safe atomic file writing using temp files and atomic rename.
+- **`buildinfo`**: Binary version, Git commit hash, and build timestamp.
+- **`logger`**: Structured `slog` wrapper supporting debug verbosity.
