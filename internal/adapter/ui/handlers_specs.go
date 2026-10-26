@@ -339,9 +339,9 @@ func (s *Server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		var triggerData any = upd.Trigger
-		if triggerData == nil {
-			triggerData = map[string]any{}
+		var triggerData any = map[string]any{}
+		if upd.Trigger != nil {
+			triggerData = upd.Trigger
 		}
 
 		changes := upd.Change

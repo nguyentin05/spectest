@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { HistoryUpdate } from "../api/types";
+import type { HistoryChange, HistoryUpdate } from "../api/types";
 import { api } from "../api/endpoints";
 import { ApiError, isMissingEndpoint } from "../api/errors";
 import { useApi } from "../hooks/useApi";
@@ -44,7 +44,7 @@ function TriggerGroup({
   );
 }
 
-function ChangeCard({ change }: { change: HistoryUpdate["change"][number] }) {
+function ChangeCard({ change }: { change: HistoryChange }) {
   return (
     <section className="st-history__change">
       <div className="st-history__change-head">

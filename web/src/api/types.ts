@@ -118,9 +118,9 @@ export type PlanResponse = {
   servers: string[];
   apis: string[];
   analysis: string;
-  seed?: Record<string, PlanSeed>;
-  setup?: Record<string, PlanSetup>;
-  scenarios?: PlanScenario[];
+  seed: Record<string, PlanSeed>;
+  setup: Record<string, PlanSetup>;
+  scenarios: PlanScenario[];
   stats: PlanStats;
 };
 
