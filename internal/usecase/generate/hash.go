@@ -4,9 +4,6 @@ package generate
 
 import (
 	"maps"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"reflect"
 	"slices"
 	"sort"
@@ -20,32 +17,20 @@ import (
 // Twelve characters is part of the format version 1 contract, so changing it
 // requires a migration.
 func hash12(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])[:12]
+	return domain.Hash12(data)
 }
 
 // suiteHash hashes only the four mutable blocks of a suite: analysis, seed,
 // setup, and scenarios. Derived fields (version, servers, apis) are excluded so
 // CLI/OpenAPI churn does not look like a content edit.
 func suiteHash(suite *domain.Suite) string {
-	if suite == nil {
-		return mutableHash(domain.MutableSuite{})
-	}
-	return mutableHash(suite.Mutable())
+	return domain.SuiteHash(suite)
 }
 
 // mutableHash hashes the canonical JSON form of the mutable blocks. It is the
 // hashing primitive used both for a whole suite and for a replayed log entry.
 func mutableHash(mutable domain.MutableSuite) string {
-	data, err := json.Marshal(normalizeMutable(mutable))
-	if err != nil {
-		// Values in these blocks come from YAML/JSON decoding, which only
-		// produces maps, slices, and scalars. A marshal failure means the
-		// caller built an impossible suite in code, so fail loudly rather
-		// than return a hash that silently ignores content.
-		panic("generate: marshal canonical suite: " + err.Error())
-	}
-	return hash12(data)
+	return domain.MutableHash(mutable)
 }
 
 // normalizeMutable returns a deep copy of the mutable blocks with canonical
