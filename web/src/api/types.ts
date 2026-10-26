@@ -118,9 +118,9 @@ export type PlanResponse = {
   servers: string[];
   apis: string[];
   analysis: string;
-  seed: Record<string, PlanSeed>;
-  setup: Record<string, PlanSetup>;
-  scenarios: PlanScenario[];
+  seed?: Record<string, PlanSeed>;
+  setup?: Record<string, PlanSetup>;
+  scenarios?: PlanScenario[];
   stats: PlanStats;
 };
 
@@ -141,8 +141,8 @@ export type HistoryTrigger = {
 };
 
 export type HistoryCreate = {
-  setup_added: string[];
-  scenarios_added: string[];
+  setup_added?: string[];
+  scenarios_added?: string[];
 };
 
 export type HistoryChange = {
@@ -158,9 +158,9 @@ export type HistoryUpdate = {
   at: string;
   by: string;
   note: string;
-  trigger: HistoryTrigger;
-  create: HistoryCreate;
-  change: HistoryChange[];
+  trigger?: HistoryTrigger;
+  create?: HistoryCreate;
+  change?: HistoryChange[];
   after_hash: string;
 };
 
@@ -168,7 +168,7 @@ export type HistoryBase = {
   at: string;
   by: string;
   after_hash: string;
-  spectest_summary: {
+  spectest_summary?: {
     servers: string[];
     apis_count: number;
     scenarios_count: number;

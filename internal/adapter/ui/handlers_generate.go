@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -70,7 +71,11 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "each API item must have non-empty 'server' and 'path'")
 			return
 		}
-		if _, err := os.Stat(filePath); err != nil {
+		resolvedPath := filePath
+		if _, err := os.Stat(resolvedPath); err != nil && !filepath.IsAbs(resolvedPath) && s.workDir != "" {
+			resolvedPath = filepath.Join(s.workDir, filePath)
+		}
+		if _, err := os.Stat(resolvedPath); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("API spec file not found for server %q: %s", serverName, filePath))
 			return
 		}
@@ -78,7 +83,11 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ReqPath != "" {
-		if _, err := os.Stat(req.ReqPath); err != nil {
+		reqPath := strings.TrimSpace(req.ReqPath)
+		if _, err := os.Stat(reqPath); err != nil && !filepath.IsAbs(reqPath) && s.workDir != "" {
+			reqPath = filepath.Join(s.workDir, reqPath)
+		}
+		if _, err := os.Stat(reqPath); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("requirements file not found: %s", req.ReqPath))
 			return
 		}

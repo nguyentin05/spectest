@@ -37,7 +37,7 @@ export function SetupCard({ id, setup }: SetupCardProps) {
         )}
       </div>
 
-      <StepList steps={setup.steps} setupVars={setup.vars} />
+      <StepList steps={setup.steps ?? []} setupVars={setup.vars} />
     </Card>
   );
 }

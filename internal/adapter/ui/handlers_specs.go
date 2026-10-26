@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/nguyentin05/spectest/internal/domain"
 	"github.com/nguyentin05/spectest/internal/infrastructure/suitefile"
 )
 
@@ -61,20 +63,8 @@ func (s *Server) handleListWorkspace(w http.ResponseWriter, r *http.Request) {
 		ext := strings.ToLower(filepath.Ext(path))
 		name := strings.ToLower(info.Name())
 
-		itemType := ""
-		if strings.Contains(name, "openapi") || strings.Contains(name, "swagger") || strings.Contains(name, "api-spec") {
-			itemType = "openapi"
-		} else if strings.Contains(name, "prd") || strings.Contains(name, "requirement") || (ext == ".md" && !strings.Contains(name, "matrix")) {
-			itemType = "prd"
-		} else if strings.HasSuffix(name, "spectest.yaml") || strings.HasSuffix(name, "spectest.yml") || strings.Contains(name, "suite") {
-			itemType = "suite"
-		} else if strings.Contains(name, "matrix") && ext == ".md" {
-			itemType = "matrix"
-		} else if ext == ".yaml" || ext == ".yml" || ext == ".json" || ext == ".md" {
-			itemType = "other"
-		}
-
-		if itemType != "" {
+		itemType := detectFileType(name)
+		if itemType != "other" || ext == ".yaml" || ext == ".yml" || ext == ".json" || ext == ".md" {
 			rel, _ := filepath.Rel(absDir, path)
 			items = append(items, workspaceItem{
 				Name: rel,
@@ -237,18 +227,39 @@ func (s *Server) handleGetPlan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	servers := suite.Servers
+	if servers == nil {
+		servers = []string{}
+	}
+	apis := suite.APIs
+	if apis == nil {
+		apis = []string{}
+	}
+	seed := suite.Seed
+	if seed == nil {
+		seed = map[string]domain.Seed{}
+	}
+	setup := suite.Setup
+	if setup == nil {
+		setup = map[string]domain.Setup{}
+	}
+	scenarios := suite.Scenarios
+	if scenarios == nil {
+		scenarios = []domain.Scenario{}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path":      suitePath,
 		"version":   suite.Version,
-		"servers":   suite.Servers,
-		"apis":      suite.APIs,
+		"servers":   servers,
+		"apis":      apis,
 		"analysis":  suite.Analysis,
-		"seed":      suite.Seed,
-		"setup":     suite.Setup,
-		"scenarios": suite.Scenarios,
+		"seed":      seed,
+		"setup":     setup,
+		"scenarios": scenarios,
 		"stats": map[string]any{
-			"total_scenarios":   len(suite.Scenarios),
-			"total_setups":      len(suite.Setup),
+			"total_scenarios":   len(scenarios),
+			"total_setups":      len(setup),
 			"total_steps":       totalSteps,
 			"locked_scenarios":  lockedCount,
 			"skipped_scenarios": skippedCount,
@@ -291,10 +302,72 @@ func (s *Server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	servers := []string{}
+	apisCount := 0
+	scenariosCount := 0
+	if logFile.Base.Spectest != nil {
+		if logFile.Base.Spectest.Servers != nil {
+			servers = logFile.Base.Spectest.Servers
+		}
+		apisCount = len(logFile.Base.Spectest.APIs)
+		scenariosCount = len(logFile.Base.Spectest.Scenarios)
+	}
+
+	baseMap := map[string]any{
+		"at":         logFile.Base.At,
+		"by":         logFile.Base.By,
+		"after_hash": logFile.Base.AfterHash,
+		"spectest":   logFile.Base.Spectest,
+		"spectest_summary": map[string]any{
+			"servers":         servers,
+			"apis_count":      apisCount,
+			"scenarios_count": scenariosCount,
+		},
+	}
+
+	updatesList := make([]map[string]any, 0, len(logFile.Update))
+	for _, upd := range logFile.Update {
+		setupAdded := []string{}
+		scenariosAdded := []string{}
+		if upd.Create != nil {
+			for k := range upd.Create.Setup {
+				setupAdded = append(setupAdded, k)
+			}
+			sort.Strings(setupAdded)
+			for _, sc := range upd.Create.Scenarios {
+				scenariosAdded = append(scenariosAdded, sc.ID)
+			}
+		}
+
+		var triggerData any = upd.Trigger
+		if triggerData == nil {
+			triggerData = map[string]any{}
+		}
+
+		changes := upd.Change
+		if changes == nil {
+			changes = []domain.Change{}
+		}
+
+		updatesList = append(updatesList, map[string]any{
+			"n":       upd.N,
+			"at":      upd.At,
+			"by":      upd.By,
+			"note":    upd.Note,
+			"trigger": triggerData,
+			"create": map[string]any{
+				"setup_added":     setupAdded,
+				"scenarios_added": scenariosAdded,
+			},
+			"change":     changes,
+			"after_hash": upd.AfterHash,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path":    logPath,
-		"base":    logFile.Base,
-		"updates": logFile.Update,
+		"base":    baseMap,
+		"updates": updatesList,
 	})
 }
 

@@ -58,7 +58,7 @@ function ChangeCard({ change }: { change: HistoryUpdate["change"][number] }) {
 }
 
 function UpdateItem({ update }: { update: HistoryUpdate }) {
-  const { openapi, requirements } = update.trigger;
+  const { openapi, requirements } = update.trigger ?? {};
 
   return (
     <article className="st-history__update">
@@ -99,23 +99,23 @@ function UpdateItem({ update }: { update: HistoryUpdate }) {
         </div>
       )}
 
-      {(update.create.setup_added.length > 0 ||
-        update.create.scenarios_added.length > 0) && (
+      {((update.create?.setup_added?.length ?? 0) > 0 ||
+        (update.create?.scenarios_added?.length ?? 0) > 0) && (
         <div className="st-history__created">
           <TriggerGroup
             label="Setup mới"
-            values={update.create.setup_added}
+            values={update.create?.setup_added ?? []}
             tone="brand"
           />
           <TriggerGroup
             label="Kịch bản mới"
-            values={update.create.scenarios_added}
+            values={update.create?.scenarios_added ?? []}
             tone="brand"
           />
         </div>
       )}
 
-      {update.change.map((change, index) => (
+      {(update.change ?? []).map((change, index) => (
         <ChangeCard key={`${change.target}-${change.id}-${index}`} change={change} />
       ))}
     </article>
@@ -127,10 +127,10 @@ function matches(update: HistoryUpdate, query: string): boolean {
 
   const text = [
     update.note,
-    ...update.create.setup_added,
-    ...update.create.scenarios_added,
-    ...update.change.flatMap((change) => [change.target, change.id, change.reason]),
-    ...(update.trigger.openapi
+    ...(update.create?.setup_added ?? []),
+    ...(update.create?.scenarios_added ?? []),
+    ...(update.change ?? []).flatMap((change) => [change.target, change.id, change.reason]),
+    ...(update.trigger?.openapi
       ? [
           ...update.trigger.openapi.added,
           ...update.trigger.openapi.changed,
@@ -182,13 +182,13 @@ export function HistoryPage() {
             </Badge>
             <code className="st-history__hash">{data.base.after_hash}</code>
             <CopyButton value={data.base.after_hash} label="mã băm gốc" />
-            {data.base.spectest_summary.servers.map((server) => (
+            {data.base.spectest_summary?.servers?.map((server) => (
               <Badge key={server} mono>
                 {server}
               </Badge>
             ))}
-            <Badge>{data.base.spectest_summary.apis_count} API</Badge>
-            <Badge>{data.base.spectest_summary.scenarios_count} kịch bản</Badge>
+            <Badge>{data.base.spectest_summary?.apis_count ?? 0} API</Badge>
+            <Badge>{data.base.spectest_summary?.scenarios_count ?? 0} kịch bản</Badge>
           </div>
         </Card>
 

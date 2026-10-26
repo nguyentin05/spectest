@@ -23,8 +23,8 @@ export function StepList({ steps, setupVars }: StepListProps) {
       )}
 
       <ol className="st-step-list__items">
-        {steps.map((step, index) => {
-          const method = step.call.split(" ")[0] ?? "";
+        {(steps ?? []).map((step, index) => {
+          const method = (step.call ?? "").split(" ")[0] ?? "";
 
           return (
             <li key={`${step.call}-${index}`} className="st-step">
