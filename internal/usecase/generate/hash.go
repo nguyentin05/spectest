@@ -27,11 +27,6 @@ func suiteHash(suite *domain.Suite) string {
 	return domain.SuiteHash(suite)
 }
 
-// mutableHash hashes the canonical JSON form of the mutable blocks. It is the
-// hashing primitive used both for a whole suite and for a replayed log entry.
-func mutableHash(mutable domain.MutableSuite) string {
-	return domain.MutableHash(mutable)
-}
 
 // normalizeMutable returns a deep copy of the mutable blocks with canonical
 // ordering and empty optional fields removed. It never mutates its input.

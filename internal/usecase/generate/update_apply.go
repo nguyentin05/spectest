@@ -4,43 +4,6 @@ import (
 	"github.com/nguyentin05/spectest/internal/domain"
 )
 
-// applyPlanToSuite creates a modified clone of suite by applying planned tool skips and repairs.
-// It returns the updated Suite and whether any scenario, setup, or field was mutated.
-func applyPlanToSuite(suite *domain.Suite, actions []UpdateAction) (*domain.Suite, bool) {
-	if suite == nil {
-		return nil, false
-	}
-
-	cloned := cloneSuite(suite)
-	suiteChanged := false
-
-	for _, act := range actions {
-		switch act.Kind {
-		case ActionAddToolSkip:
-			for i := range cloned.Scenarios {
-				if cloned.Scenarios[i].ID == act.ScenarioID {
-					if cloned.Scenarios[i].Skip != act.Reason {
-						cloned.Scenarios[i].Skip = act.Reason
-						suiteChanged = true
-					}
-					break
-				}
-			}
-		case ActionRemoveToolSkip:
-			for i := range cloned.Scenarios {
-				if cloned.Scenarios[i].ID == act.ScenarioID {
-					if cloned.Scenarios[i].Skip != "" {
-						cloned.Scenarios[i].Skip = ""
-						suiteChanged = true
-					}
-					break
-				}
-			}
-		}
-	}
-
-	return cloned, suiteChanged
-}
 
 // buildCatalogPatch creates the delta patch of APIState entries for an update.
 func buildCatalogPatch(diff APIDiff) domain.APICatalog {

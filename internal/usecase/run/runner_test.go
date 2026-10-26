@@ -978,9 +978,10 @@ func TestRunner_OnlyChanged_NoUpdates_NoTargetRequired_NoOpSuccess(t *testing.T)
 		Suite:       suite,
 		OnlyChanged: true,
 		OnEvent: func(evt RunEvent) {
-			if evt.Type == EventSuiteStart {
+			switch evt.Type {
+			case EventSuiteStart:
 				startEvt = evt
-			} else if evt.Type == EventSuiteComplete {
+			case EventSuiteComplete:
 				completeEvt = evt
 			}
 		},

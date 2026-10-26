@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/nguyentin05/spectest/internal/domain"
 )
 
 // RunEvent represents a real-time event dispatched during a test run execution.
@@ -302,19 +300,4 @@ func (m *SessionManager) Logs() []string {
 	copied := make([]string, len(m.recentLogs))
 	copy(copied, m.recentLogs)
 	return copied
-}
-
-// countSuiteSteps calculates the total number of steps in setups and scenarios.
-func countSuiteSteps(suite *domain.Suite) int {
-	if suite == nil {
-		return 0
-	}
-	total := 0
-	for _, sc := range suite.Scenarios {
-		total += len(sc.Steps)
-	}
-	for _, st := range suite.Setup {
-		total += len(st.Steps)
-	}
-	return total
 }

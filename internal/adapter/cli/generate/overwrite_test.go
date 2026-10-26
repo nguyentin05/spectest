@@ -98,8 +98,8 @@ func TestGuardOverwrite_PendingMarker(t *testing.T) {
 // interrupts a prompt blocked on stdin instead of waiting for a line.
 func TestConfirmOverwrite_CanceledContext(t *testing.T) {
 	in, writer := io.Pipe()
-	defer in.Close()
-	defer writer.Close()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = writer.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

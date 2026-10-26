@@ -47,24 +47,24 @@ You MUST reply with ONLY a valid JSON object matching this schema:
 }`
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("SCENARIO: [%s] %s\n", tc.ScenarioID, tc.ScenarioName))
-	sb.WriteString(fmt.Sprintf("FAILED STEP: %s\n", tc.StepCall))
-	sb.WriteString(fmt.Sprintf("HTTP REQUEST: %s %s\n", tc.Method, tc.URL))
-	sb.WriteString(fmt.Sprintf("EXPECTED STATUS: %d\n", tc.ExpectedStatus))
-	sb.WriteString(fmt.Sprintf("ACTUAL STATUS: %d\n", tc.ActualStatus))
+	fmt.Fprintf(&sb, "SCENARIO: [%s] %s\n", tc.ScenarioID, tc.ScenarioName)
+	fmt.Fprintf(&sb, "FAILED STEP: %s\n", tc.StepCall)
+	fmt.Fprintf(&sb, "HTTP REQUEST: %s %s\n", tc.Method, tc.URL)
+	fmt.Fprintf(&sb, "EXPECTED STATUS: %d\n", tc.ExpectedStatus)
+	fmt.Fprintf(&sb, "ACTUAL STATUS: %d\n", tc.ActualStatus)
 
 	if len(tc.RequestHeaders) > 0 {
 		headersJSON, _ := json.Marshal(tc.RequestHeaders)
-		sb.WriteString(fmt.Sprintf("REQUEST HEADERS: %s\n", string(headersJSON)))
+		fmt.Fprintf(&sb, "REQUEST HEADERS: %s\n", string(headersJSON))
 	}
 	if tc.RequestBody != "" {
-		sb.WriteString(fmt.Sprintf("REQUEST BODY:\n%s\n", tc.RequestBody))
+		fmt.Fprintf(&sb, "REQUEST BODY:\n%s\n", tc.RequestBody)
 	}
 	if tc.ResponseBody != "" {
-		sb.WriteString(fmt.Sprintf("RESPONSE BODY:\n%s\n", tc.ResponseBody))
+		fmt.Fprintf(&sb, "RESPONSE BODY:\n%s\n", tc.ResponseBody)
 	}
 	if tc.SuiteAnalysis != "" {
-		sb.WriteString(fmt.Sprintf("BUSINESS SPECIFICATION CONTEXT:\n%s\n", tc.SuiteAnalysis))
+		fmt.Fprintf(&sb, "BUSINESS SPECIFICATION CONTEXT:\n%s\n", tc.SuiteAnalysis)
 	}
 
 	rawJSON, err := llm.GenerateStructured(ctx, systemPrompt, sb.String(), nil)
