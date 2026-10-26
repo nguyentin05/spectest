@@ -421,3 +421,42 @@ func TestSelectLatestUpdateScenarios_MissingAfterHash_ReturnsError(t *testing.T)
 		t.Errorf("error = %v, want 'missing after_hash'", err)
 	}
 }
+
+func TestSelectLatestUpdateScenarios_ImpactWithoutSuiteMutation(t *testing.T) {
+	suite := &domain.Suite{
+		Setup: map[string]domain.Setup{
+			"auth_setup": {Steps: []domain.Step{{Call: "POST {auth}/login", Expect: 200}}},
+		},
+		Scenarios: []domain.Scenario{
+			{ID: "scenario-a", Setup: []string{"auth_setup"}},
+			{ID: "scenario-b"},
+		},
+	}
+	hash := domain.SuiteHash(suite)
+
+	log := &domain.LogFile{
+		Base: domain.BaseEntry{AfterHash: "init_hash"},
+		Update: []domain.UpdateEntry{
+			{
+				N:         1,
+				AfterHash: hash,
+				Impact: domain.UpdateImpact{
+					Setups:    []string{"auth_setup"},
+					Scenarios: []string{"scenario-b"},
+				},
+				// No Create, No Change!
+			},
+		},
+	}
+
+	filtered, sel, err := SelectLatestUpdateScenarios(suite, log)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(filtered.Scenarios) != 2 {
+		t.Fatalf("expected 2 scenarios selected via impact and DAG, got %d", len(filtered.Scenarios))
+	}
+	if len(sel.ScenarioIDs) != 2 || sel.ScenarioIDs[0] != "scenario-a" || sel.ScenarioIDs[1] != "scenario-b" {
+		t.Errorf("unexpected selected IDs: %v", sel.ScenarioIDs)
+	}
+}

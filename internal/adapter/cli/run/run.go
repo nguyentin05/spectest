@@ -53,6 +53,7 @@ automatically trigger AI defect triage when test cases fail.`,
   spectest run -f ./tests/spectest.yaml -t http://localhost:8080 --triage
   spectest run -f ./tests/spectest.yaml --compose docker-compose.test.yml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
 			return runSuite(cmd.Context(), cmd.OutOrStdout(), f, opts)
 		},
 	}

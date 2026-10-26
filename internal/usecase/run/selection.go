@@ -61,7 +61,19 @@ func SelectLatestUpdateScenarios(
 	selectedScenarioIDs := make(map[string]bool)
 	changedSetups := make(map[string]bool)
 
-	// 2. Check create block
+	// 2. Check impact block
+	for _, scID := range latest.Impact.Scenarios {
+		if scID != "" {
+			selectedScenarioIDs[scID] = true
+		}
+	}
+	for _, setupName := range latest.Impact.Setups {
+		if setupName != "" {
+			changedSetups[setupName] = true
+		}
+	}
+
+	// 3. Check create block
 	if latest.Create != nil {
 		if len(latest.Create.Seed) > 0 {
 			selectAll = true
@@ -76,7 +88,7 @@ func SelectLatestUpdateScenarios(
 		}
 	}
 
-	// 3. Check changes list
+	// 4. Check changes list
 	for _, ch := range latest.Change {
 		switch ch.Target {
 		case domain.TargetSeed:
@@ -94,7 +106,7 @@ func SelectLatestUpdateScenarios(
 		}
 	}
 
-	// 4. Resolve transitive setup dependencies for each scenario if setups changed
+	// 5. Resolve transitive setup dependencies for each scenario if setups changed
 	if !selectAll && len(changedSetups) > 0 {
 		for _, sc := range suite.Scenarios {
 			dag, err := ResolveSetupDAG(sc.Setup, suite.Setup)
@@ -110,7 +122,7 @@ func SelectLatestUpdateScenarios(
 		}
 	}
 
-	// 5. Fail closed consistency check:
+	// 6. Fail closed consistency check:
 	// Verify that every scenario ID selected by the log exists in the current suite
 	suiteIDSet := make(map[string]bool, len(suite.Scenarios))
 	for _, sc := range suite.Scenarios {
@@ -123,7 +135,7 @@ func SelectLatestUpdateScenarios(
 		}
 	}
 
-	// 6. Build filtered scenarios preserving original order
+	// 7. Build filtered scenarios preserving original order
 	var filtered []domain.Scenario
 	var resultIDs []string
 
