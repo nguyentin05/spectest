@@ -1,16 +1,18 @@
 // Package generate implements the `spectest generate` CLI subcommand, which
-// creates the spectest suite, history log, and track files from one or more
+// creates or updates the spectest suite and history log from one or more
 // OpenAPI documents and optional raw requirements.
 package generate
 
 import (
-	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/nguyentin05/spectest/internal/adapter/cli/cmdutil"
 	"github.com/nguyentin05/spectest/internal/infrastructure/sources"
+	"github.com/nguyentin05/spectest/internal/infrastructure/suitefile"
 	usecasegenerate "github.com/nguyentin05/spectest/internal/usecase/generate"
 	"github.com/spf13/cobra"
 )
@@ -24,10 +26,9 @@ type options struct {
 	dryRun    bool
 }
 
-// NewCommand creates the `spectest generate` subcommand. Only init mode is
-// implemented: the command validates flags, confirms before overwriting
-// existing suite files, resolves an LLM provider, and writes a new suite.
-// Update mode is recognized but reports that it is not implemented.
+// NewCommand creates the `spectest generate` subcommand. It supports `--mode init`
+// to generate a new suite and `--mode update` to incrementally synchronize an existing
+// suite with OpenAPI changes.
 func NewCommand(f *cmdutil.Factory) *cobra.Command {
 	opts := &options{outputDir: "./tests", mode: "init"}
 
@@ -36,15 +37,14 @@ func NewCommand(f *cmdutil.Factory) *cobra.Command {
 		Short:   "Generate a new SpecTest suite from OpenAPI and requirements",
 		GroupID: "core",
 		Args:    cobra.NoArgs,
-		Long: `Generate a new spectest.yaml suite from one or more OpenAPI documents and optional
-raw requirements. The command manages spectest.yaml, spectest.log.yaml, and
-spectest.track.yaml together. If any of these files already exist, you must confirm
-before they are overwritten.
+		Long: `Generate or update a spectest.yaml suite from one or more OpenAPI documents and optional
+raw requirements. The command manages spectest.yaml and spectest.log.yaml together.
 
-Only init mode is implemented. --mode update is reserved and currently reports that
-it is not implemented yet, without reading or writing any files.`,
+In init mode, if existing suite files are found, confirmation is required before overwriting.
+In update mode, OpenAPI changes are diffed against the history log catalog and applied incrementally.`,
 		Example: `  spectest generate --mode init --api auth=openapi-auth.yaml --api order=openapi-order.yaml
-  spectest generate --mode init -a auth=openapi.yaml -r requirements.md -o ./tests --dry-run`,
+  spectest generate --mode init -a auth=openapi.yaml -r requirements.md -o ./tests --dry-run
+  spectest generate --mode update -a auth=openapi.yaml -o ./tests`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGenerate(cmd, opts, f)
 		},
@@ -55,7 +55,7 @@ it is not implemented yet, without reading or writing any files.`,
 	cmd.Flags().StringVarP(&opts.reqPath, "req", "r", "",
 		"Path to raw business requirements (markdown)")
 	cmd.Flags().StringVarP(&opts.outputDir, "output", "o", opts.outputDir,
-		"Directory containing spectest.yaml, spectest.log.yaml, and spectest.track.yaml")
+		"Directory containing spectest.yaml and spectest.log.yaml")
 	cmd.Flags().StringVar(&opts.mode, "mode", opts.mode,
 		"Generation mode: init or update")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false,
@@ -66,10 +66,8 @@ it is not implemented yet, without reading or writing any files.`,
 
 func validateMode(mode string) error {
 	switch mode {
-	case "init":
+	case "init", "update":
 		return nil
-	case "update":
-		return errors.New("update mode is not implemented yet; use --mode init")
 	default:
 		return fmt.Errorf("invalid --mode %q: must be init or update", mode)
 	}
@@ -80,10 +78,6 @@ func runGenerate(cmd *cobra.Command, opts *options, f *cmdutil.Factory) error {
 		return err
 	}
 	if err := validateMode(opts.mode); err != nil {
-		// The update stub is an expected runtime outcome, not a usage error.
-		if opts.mode == "update" {
-			cmd.SilenceUsage = true
-		}
 		return err
 	}
 	if len(opts.apiValues) == 0 {
@@ -97,24 +91,46 @@ func runGenerate(cmd *cobra.Command, opts *options, f *cmdutil.Factory) error {
 		return fmt.Errorf("--output must not be empty")
 	}
 
-	// Declining the prompt and aborting on a pending marker are expected
-	// outcomes, so suppress Cobra's usage block from here on.
 	cmd.SilenceUsage = true
-	if err := guardOverwrite(
-		cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts.outputDir, opts.dryRun,
-	); err != nil {
-		return err
+
+	reqMode := usecasegenerate.ModeInitial
+	if opts.mode == "update" {
+		reqMode = usecasegenerate.ModeUpdate
+	}
+
+	if reqMode == usecasegenerate.ModeInitial {
+		if err := guardOverwrite(
+			cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts.outputDir, opts.dryRun,
+		); err != nil {
+			return err
+		}
+	} else {
+		// Update mode requires spectest.yaml and spectest.log.yaml to already exist
+		suitePath := filepath.Join(opts.outputDir, suitefile.SuiteFileName)
+		logPath := filepath.Join(opts.outputDir, suitefile.LogFileName)
+		if _, err := os.Stat(suitePath); err != nil {
+			return fmt.Errorf("update requires %s in %s: %w", suitefile.SuiteFileName, opts.outputDir, err)
+		}
+		if _, err := os.Stat(logPath); err != nil {
+			return fmt.Errorf("update requires %s in %s: %w", suitefile.LogFileName, opts.outputDir, err)
+		}
 	}
 
 	llmSvc, err := f.LLMService()
 	if err != nil {
-		return err
+		if reqMode == usecasegenerate.ModeUpdate {
+			// Update mode resolves LLM optionally (errors only if plan requires LLM)
+			llmSvc = nil
+		} else {
+			return err
+		}
 	}
 
 	loader := sources.NewLoader()
 	gen := usecasegenerate.NewGenerator(llmSvc, loader, f.SuiteStore(), realClock{})
 
 	res, err := gen.Execute(cmd.Context(), usecasegenerate.Request{
+		Mode:             reqMode,
 		APIs:             inputs,
 		RequirementsPath: opts.reqPath,
 		OutputDir:        opts.outputDir,

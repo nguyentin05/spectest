@@ -18,7 +18,6 @@ func TestPrintSummary(t *testing.T) {
 		Warnings:       []string{"w1", "w2"},
 		SuitePath:      "./tests/spectest.yaml",
 		LogPath:        "./tests/spectest.log.yaml",
-		TrackPath:      "./tests/spectest.track.yaml",
 		NoFilesWritten: false,
 	}
 	var out bytes.Buffer

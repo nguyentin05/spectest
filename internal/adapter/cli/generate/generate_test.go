@@ -38,19 +38,16 @@ func TestGenerateCmd_HelpFlags(t *testing.T) {
 	}
 }
 
-func TestGenerateCmd_UpdateModeNotImplemented(t *testing.T) {
+func TestGenerateCmd_UpdateRequiresExistingFiles(t *testing.T) {
 	cmd := NewCommand(cmdutil.NewFactory())
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--mode", "update"})
+	cmd.SetArgs([]string{"--mode", "update", "--api", "auth=whatever.yaml", "--output", t.TempDir()})
 
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("error = %v, want update not implemented", err)
-	}
-	if strings.Contains(out.String(), "Usage:") {
-		t.Errorf("update stub must not print usage, got:\n%s", out.String())
+	if err == nil || !strings.Contains(err.Error(), "spectest.yaml") {
+		t.Fatalf("error = %v, want missing spectest.yaml error", err)
 	}
 }
 
