@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ func newTestServer(t *testing.T) (*Server, *cmdutil.Factory, string) {
 func sampleSuite() *domain.Suite {
 	return &domain.Suite{
 		Version:  1,
+		Input:    domain.InputOpenAPI,
 		Servers:  []string{"auth"},
 		APIs:     []string{"GET {auth}/api/users"},
 		Analysis: "User management flow",
@@ -407,5 +409,136 @@ func TestServer_CancelActiveRun(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &res)
 	if res["success"] != false {
 		t.Error("expected success=false when cancelling idle session")
+	}
+}
+
+func TestServer_ConcurrentReportAccessRace(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer ts.Close()
+
+	srv, _, tmpDir := newTestServer(t)
+	handler := srv.Routes()
+
+	suitePath := filepath.Join(tmpDir, "concurrent.yaml")
+	suite := &domain.Suite{
+		Version: 1,
+		Input:   domain.InputOpenAPI,
+		Scenarios: []domain.Scenario{
+			{
+				ID:   "multi-step-sc",
+				Name: "Scenario with several steps",
+				Steps: []domain.Step{
+					{Call: "GET /step1", Expect: 200},
+					{Call: "GET /step2", Expect: 200},
+					{Call: "GET /step3", Expect: 200},
+					{Call: "GET /step4", Expect: 200},
+				},
+			},
+		},
+	}
+	data, _ := suitefile.EncodeSuite(suite)
+	_ = os.WriteFile(suitePath, data, 0o644)
+
+	// Start run
+	payload, _ := json.Marshal(map[string]any{
+		"target_url": ts.URL,
+		"suite_path": suitePath,
+	})
+	startReq := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(payload))
+	startRec := httptest.NewRecorder()
+	handler.ServeHTTP(startRec, startReq)
+	if startRec.Code != http.StatusAccepted {
+		t.Fatalf("run status = %d, want 202", startRec.Code)
+	}
+
+	// Concurrently query /api/run/report from multiple goroutines
+	done := make(chan struct{})
+	for i := 0; i < 10; i++ {
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					req := httptest.NewRequest(http.MethodGet, "/api/run/report", nil)
+					rec := httptest.NewRecorder()
+					handler.ServeHTTP(rec, req)
+					if rec.Code == http.StatusOK {
+						var rep RunReport
+						_ = json.Unmarshal(rec.Body.Bytes(), &rep)
+					}
+					time.Sleep(1 * time.Millisecond)
+				}
+			}
+		}()
+	}
+
+	// Wait until run finishes by polling LastReport
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		rep := srv.sessionMgr.LastReport()
+		if rep != nil && (rep.Status == "passed" || rep.Status == "failed") {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(done)
+}
+
+func TestServer_InvalidTargetRejectedWith400(t *testing.T) {
+	srv, _, tmpDir := newTestServer(t)
+	handler := srv.Routes()
+
+	suitePath := filepath.Join(tmpDir, "spectest.yaml")
+	data, _ := suitefile.EncodeSuite(sampleSuite())
+	_ = os.WriteFile(suitePath, data, 0o644)
+
+	// Case 1: Valid default target, but one alias has an invalid protocol (ftp://bad)
+	// Must return 400 and NOT silently fall back to default target
+	payload1, _ := json.Marshal(map[string]any{
+		"target_url": "http://localhost:8080",
+		"targets": map[string]string{
+			"auth": "ftp://bad-url",
+		},
+		"suite_path": suitePath,
+	})
+	req1 := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(payload1))
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for invalid target alias URL, got: %d (%s)", rec1.Code, rec1.Body.String())
+	}
+	if !strings.Contains(rec1.Body.String(), "invalid target URL") {
+		t.Errorf("expected error message to mention 'invalid target URL', got: %s", rec1.Body.String())
+	}
+
+	// Case 2: Empty alias name in targets map
+	payload2, _ := json.Marshal(map[string]any{
+		"targets": map[string]string{
+			"": "http://localhost:8080",
+		},
+		"suite_path": suitePath,
+	})
+	req2 := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(payload2))
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for empty alias, got: %d", rec2.Code)
+	}
+
+	// Case 3: Invalid default target URL (non-http/https scheme)
+	payload3, _ := json.Marshal(map[string]any{
+		"target_url": "ftp://not-http",
+		"suite_path": suitePath,
+	})
+	req3 := httptest.NewRequest(http.MethodPost, "/api/run", bytes.NewReader(payload3))
+	rec3 := httptest.NewRecorder()
+	handler.ServeHTTP(rec3, req3)
+	if rec3.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for invalid default target URL, got: %d", rec3.Code)
 	}
 }

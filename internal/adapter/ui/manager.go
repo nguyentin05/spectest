@@ -53,6 +53,35 @@ type RunReport struct {
 	EndTime          time.Time         `json:"end_time"`
 	DurationMs       int64             `json:"duration_ms"`
 	Results          []CaseResult      `json:"results"`
+	SelectionMode    string            `json:"selection_mode,omitempty"`
+	UpdateN          int               `json:"update_n,omitempty"`
+}
+
+// Clone creates a deep copy of RunReport for thread-safe snapshots.
+func (r *RunReport) Clone() *RunReport {
+	if r == nil {
+		return nil
+	}
+	cp := *r
+	if r.Targets != nil {
+		cp.Targets = make(map[string]string, len(r.Targets))
+		for k, v := range r.Targets {
+			cp.Targets[k] = v
+		}
+	}
+	if r.Results != nil {
+		cp.Results = make([]CaseResult, len(r.Results))
+		for i, res := range r.Results {
+			cp.Results[i] = res
+			if res.SavedVars != nil {
+				cp.Results[i].SavedVars = make(map[string]any, len(res.SavedVars))
+				for k, v := range res.SavedVars {
+					cp.Results[i].SavedVars[k] = v
+				}
+			}
+		}
+	}
+	return &cp
 }
 
 // RunSession encapsulates a live test execution session.
@@ -85,6 +114,49 @@ func NewRunSession(id, targetURL, suitePath string, cancel context.CancelFunc) *
 			Results:   make([]CaseResult, 0),
 		},
 	}
+}
+
+// SnapshotReport returns a thread-safe deep copy of the current report.
+func (s *RunSession) SnapshotReport() *RunReport {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Report.Clone()
+}
+
+// InitReport initializes targets and totals safely under lock.
+func (s *RunSession) InitReport(targets map[string]string, totalCases, totalScenarios int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if targets != nil {
+		s.Report.Targets = make(map[string]string, len(targets))
+		for k, v := range targets {
+			s.Report.Targets[k] = v
+		}
+	}
+	s.Report.TotalCases = totalCases
+	s.Report.TotalScenarios = totalScenarios
+}
+
+// SetSelection sets selection mode and update index under lock.
+func (s *RunSession) SetSelection(mode string, updateN int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Report.SelectionMode = mode
+	s.Report.UpdateN = updateN
+}
+
+// UpdateMetrics updates counts and duration from usecase summary under lock.
+func (s *RunSession) UpdateMetrics(totalScenarios, passedScenarios, failedScenarios, skippedScenarios, totalChecks, passedChecks, failedChecks int, durationMs int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Report.TotalScenarios = totalScenarios
+	s.Report.PassedScenarios = passedScenarios
+	s.Report.FailedScenarios = failedScenarios
+	s.Report.SkippedScenarios = skippedScenarios
+	s.Report.TotalCases = totalChecks
+	s.Report.Passed = passedChecks
+	s.Report.Failed = failedChecks
+	s.Report.DurationMs = durationMs
 }
 
 // Broadcast sends an event to all connected SSE clients.
@@ -183,30 +255,33 @@ func (m *SessionManager) CancelActive() bool {
 	if m.activeSession != nil && m.activeSession.Status == "running" {
 		m.activeSession.Cancel()
 		m.activeSession.Finish("cancelled")
-		m.lastReport = m.activeSession.Report
+		m.lastReport = m.activeSession.SnapshotReport()
 		return true
 	}
 	return false
 }
 
-// SetLastReport stores completed report.
+// SetLastReport stores completed report (safe deep copy).
 func (m *SessionManager) SetLastReport(rep *RunReport) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.lastReport = rep
-	if m.activeSession != nil && m.activeSession.ID == rep.ID {
+	m.lastReport = rep.Clone()
+	if m.activeSession != nil && rep != nil && m.activeSession.ID == rep.ID {
 		m.activeSession.Finish(rep.Status)
 	}
 }
 
-// LastReport retrieves the latest completed run report.
+// LastReport retrieves a thread-safe snapshot of the latest run report.
 func (m *SessionManager) LastReport() *RunReport {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.activeSession != nil {
-		return m.activeSession.Report
+		return m.activeSession.SnapshotReport()
 	}
-	return m.lastReport
+	if m.lastReport != nil {
+		return m.lastReport.Clone()
+	}
+	return nil
 }
 
 // AppendLog adds a message to the recent logs buffer.
