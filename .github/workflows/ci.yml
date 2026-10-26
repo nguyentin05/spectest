@@ -103,20 +103,26 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
-      
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6.1.0
-        with:
-          version: 9
 
-      - name: Install
-        run: pnpm install --frozen-lockfile
+      - name: Install Dependencies
+        working-directory: web
+        run: |
+          if [ -f "pnpm-lock.yaml" ]; then
+            corepack enable && pnpm install --frozen-lockfile
+          elif [ -f "package-lock.json" ]; then
+            npm ci
+          else
+            npm install
+          fi
 
-      - name: Test
-        run: pnpm test
+      - name: Run Tests
+        working-directory: web
+        run: npm run test:run || npm test
 
       - name: Typecheck
-        run: pnpm run typecheck
+        working-directory: web
+        run: npm run typecheck
 
-      - name: Build
-        run: pnpm build
+      - name: Build Web Bundle
+        working-directory: web
+        run: npm run build
