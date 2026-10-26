@@ -1,9 +1,12 @@
-site_name: SpecTest-AI
+site_name: SpecTest
 site_description: Autonomous AI Test Engineering Engine & GitHub Action
-site_author: Nguyen Trong Tin & SpecTest-AI Team
+site_author: Nguyen Trong Tin & SpecTest Team
 site_url: https://nguyentin05.github.io/spectest/
 repo_name: nguyentin05/spectest
 repo_url: https://github.com/nguyentin05/spectest
+
+exclude_docs: |
+  superpowers/**
 
 theme:
   name: material
@@ -24,10 +27,33 @@ theme:
     - navigation.tabs
     - navigation.sections
     - navigation.top
+    - navigation.tracking
     - search.suggest
     - search.highlight
     - content.code.copy
     - content.code.annotate
+    - content.tabs.link
+
+extra:
+  alternate:
+    - name: English
+      link: /
+      lang: en
+    - name: Tiếng Việt
+      link: /vi/
+      lang: vi
+
+plugins:
+  - search
+  - i18n:
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: vi
+          name: Tiếng Việt
+          build: true
 
 markdown_extensions:
   - admonition
@@ -47,6 +73,30 @@ markdown_extensions:
   - attr_list
 
 nav:
-  - Overview: index.md
-  - Quick Start: quickstart.md
-  - Architecture: architecture.md
+  - Getting Started:
+      - Overview: index.md
+      - Quick Start: quickstart.md
+      - Installation: getting-started/installation.md
+  - Core Concepts:
+      - Zero-Token First: concepts/zero-token-first.md
+      - Two-Artifact Model: concepts/two-file-model.md
+      - Execution Lifecycle: concepts/execution-lifecycle.md
+      - Spec-Drift & Update Mode: concepts/spec-drift-update.md
+      - Test Oracle & AI Triage: concepts/oracle-and-triage.md
+  - CLI Reference:
+      - Overview & Global Flags: cli/overview.md
+      - spectest generate: cli/generate.md
+      - spectest run: cli/run.md
+      - spectest config: cli/config.md
+      - spectest ui: cli/ui.md
+  - Configuration & Schema:
+      - spectest.yaml Specification: configuration/suite-spec.md
+      - spectest.log.yaml History: configuration/history-log-spec.md
+      - Credentials & Providers: configuration/credentials.md
+  - Integrations:
+      - Web UI Dashboard: integrations/web-ui.md
+      - GitHub Actions CI/CD: integrations/github-actions.md
+      - Docker & Compose Lifecycle: integrations/docker-compose.md
+  - Architecture & Community:
+      - System Architecture: architecture.md
+      - Contributing Guide: contributing.md
