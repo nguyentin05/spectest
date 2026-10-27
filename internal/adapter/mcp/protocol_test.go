@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +31,11 @@ type jsonRPCResponse struct {
 func TestMCP_StdioProtocol_HandshakeAndTools(t *testing.T) {
 	// 1. Build test binary
 	tmpDir := t.TempDir()
-	binPath := filepath.Join(tmpDir, "spectest")
+	binName := "spectest"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	binPath := filepath.Join(tmpDir, binName)
 	buildCmd := exec.Command("go", "build", "-o", binPath, "github.com/nguyentin05/spectest/cmd/spectest")
 	if out, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build failed: %v, out: %s", err, string(out))

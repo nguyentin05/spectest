@@ -46,7 +46,8 @@ func (r *PathResolver) Root() string {
 // Resolve resolves a given path safely inside the root directory.
 // Rejects path traversal, symlink escapes, or absolute paths outside the root boundary.
 func (r *PathResolver) Resolve(p string) (string, error) {
-	cleanP := filepath.Clean(strings.TrimSpace(p))
+	trimmed := strings.TrimSpace(p)
+	cleanP := filepath.Clean(trimmed)
 	if cleanP == "" || cleanP == "." {
 		return r.canonicalRoot, nil
 	}
@@ -54,6 +55,13 @@ func (r *PathResolver) Resolve(p string) (string, error) {
 	var candidate string
 	if filepath.IsAbs(cleanP) {
 		candidate = cleanP
+	} else if filepath.VolumeName(cleanP) != "" {
+		candidate = cleanP
+	} else if strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "\\") || strings.HasPrefix(cleanP, string(filepath.Separator)) {
+		// Drive-rooted or root-relative path (e.g. /etc/passwd or \etc\passwd on Windows).
+		// Anchor it to the root volume so it can be evaluated against canonicalRoot.
+		vol := filepath.VolumeName(r.canonicalRoot)
+		candidate = vol + cleanP
 	} else {
 		candidate = filepath.Join(r.canonicalRoot, cleanP)
 	}

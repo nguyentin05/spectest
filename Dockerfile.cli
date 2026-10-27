@@ -4,7 +4,7 @@
 # Multi-platform build from native Go builder without QEMU emulation:
 #   docker run --rm -v "$PWD:/workspace" ghcr.io/nguyentin05/spectest:latest run -f /workspace/spectest.yaml
 
-FROM --platform=$BUILDPLATFORM golang:1.25.0-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
