@@ -53,7 +53,7 @@ Rules:
 - No analysis, no steps, no scenarios here. Only the three fields above.
 - "assumptions": every gap or ambiguity you had to resolve. "evidence" quotes requirements verbatim when requirements are provided, otherwise use [].
 - "seed": literal data that already exists. Prefer values from notes of kind "seed". Never use {{...}} in seed. A var name must not be defined in two seeds. Seed name matches ^[a-z][a-z0-9_]*$. Do not invent credentials or ids that are not in the notes or requirements.
-- "common_setups": flows shared by several groups (for example login). Name matches ^[a-z][a-z0-9_]*$ and is unique. A name must NOT start with any prefix in "reserved_local_setup_prefixes". "use" may only name other common setups. "apis" may only contain keys from the groups.
+- "common_setups": flows shared by several groups (for example login). Name matches ^[a-z][a-z0-9_]*$ and is unique. A name must NOT start with any prefix in "reserved_local_setup_prefixes". "use" may only name other common setups. "apis" may only contain keys from the groups. If any API requires authentication (e.g. Bearer token), define a common setup (such as a register/login flow) so other groups can reuse it.
 - Only use API keys that appear in the input. Never add an API.
 - "name", "purpose", "topic", "assumption", "reason" use the language of the requirements (English if there are none).` + dataRule
 
@@ -71,6 +71,7 @@ Rules:
 - Local setup names MUST start with the value of "local_setup_prefix" and match ^[a-z][a-z0-9_]*$.
 - "use" and "setup" may only name common setups from the input or local setups you define here.
 - "apis" may only contain keys from this group's "apis". A flow that needs APIs of another group must use a common setup.
+- Setups are only for creating prerequisite test data or entities. Do NOT create a setup whose only step is a read-only endpoint (like GET); test those in scenarios instead.
 - Every API of the group must be covered by at least one scenario or local setup, or by a common setup.
 - Scenario id matches ^[a-z][a-z0-9-]*$; ids and names must be unique across the whole suite, so prefix ids with the resource.
 - Do not invent business rules that are neither in the notes nor in the API data.
@@ -89,9 +90,10 @@ Rules:
 ` + jsonRule + `
 - "vars" is optional. Every step's "call" must equal the "key" of one entry in "allowed_apis". The setup MUST call every API in setup.apis at least once.
 - Variable syntax:
-  * seed vars: dotted form {{seedName.varName}}. Never use the bare form for seed vars.
+  * seed vars: dotted form {{seedName.varName}}. Only use seeds explicitly declared in the input "seed"; never invent seed names or undeclared variables.
   * names saved by earlier steps or by "dependencies": bare {{saveName}}.
   * this setup's own vars: bare {{varName}}.
+- Never reference undefined variables like {{seed.xxx}} or {{seeds.xxx}} when no such seed is provided.
 - "save" maps a variable name to a response expression: {"order_id": "body.id"} or {"token": "header.x"}. Save names are unique.
 - If the API has a request body, include every required field. If it has no request body, omit "body". Include every required header from the API signature. "expect" is the HTTP status (>= 100) and must be a status the API documents when it documents any.
 - Use "notes" and "assumptions" for business rules and data; do not invent values that are in neither.` + dataRule
@@ -108,7 +110,7 @@ Rules:
 - Return exactly one entry per scenario in the input, with the same "id". Nothing else: no vars, name or setup.
 - Every step's "call" must equal the "key" of one entry in that scenario's "allowed_apis".
 - Variable syntax:
-  * seed vars: dotted form {{seedName.varName}}. Never use the bare form for seed vars.
+  * seed vars: dotted form {{seedName.varName}}. Only use seeds explicitly declared in the input "seed"; never invent seed names or undeclared variables.
   * names saved by that scenario's "setup_closure" or by its own earlier steps: bare {{saveName}}.
 - If the API has a request body, include every required field. If it has no request body, omit "body". Include every required header from the API signature. "expect" is the HTTP status (>= 100) and must be a documented status when the API documents any.
 - "save" maps a variable name to a response expression: {"order_id": "body.id"} or {"token": "header.x"}. The name must be unique in the scenario and is available to later steps as a bare {{name}}.

@@ -20,6 +20,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserOut'
+        '409':
+          description: Conflict Error
         '422':
           description: Validation Error
           content:
@@ -43,6 +45,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenOut'
+        '401':
+          description: Unauthorized
         '422':
           description: Validation Error
           content:
@@ -60,6 +64,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserOut'
+        '401':
+          description: Unauthorized
       security:
       - HTTPBearer: []
   /health:
