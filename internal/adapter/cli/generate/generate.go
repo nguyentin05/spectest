@@ -139,9 +139,9 @@ func runGenerate(cmd *cobra.Command, opts *options, f *cmdutil.Factory) error {
 		Concurrency:      opts.concurrency,
 		Progress: func(current, total int, message string) {
 			if total > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "  [%d/%d] %s\n", current, total, message)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%d/%d] %s\n", current, total, message)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "▶ %s\n", message)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "▶ %s\n", message)
 			}
 		},
 	})

@@ -38,15 +38,6 @@ func renderPrompt(name string, vars map[string]string) (string, error) {
 	return content, nil
 }
 
-// mustRender renders a prompt template and panics on read failure.
-func mustRender(name string, vars map[string]string) string {
-	res, err := renderPrompt(name, vars)
-	if err != nil {
-		panic(err)
-	}
-	return res
-}
-
 func buildContractPrompt(facts map[string]*apiFacts, requirements string) (string, string, error) {
 	ops := make([]map[string]any, 0, len(facts))
 	for _, f := range facts {

@@ -10,10 +10,7 @@ import (
 	"github.com/nguyentin05/spectest/internal/domain"
 )
 
-var (
-	kebabRe    = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-	nonAlphanum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
-)
+var nonAlphanum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 
 func slugifyID(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
@@ -70,10 +67,7 @@ func buildFacts(src *domain.SourceSet) map[string]*apiFacts {
 		}
 		sort.Strings(respFields)
 
-		authList := make([]string, 0)
-		for _, a := range api.Sig.Auth {
-			authList = append(authList, a)
-		}
+		authList := append([]string(nil), api.Sig.Auth...)
 
 		facts[api.Key] = &apiFacts{
 			Key:                api.Key,

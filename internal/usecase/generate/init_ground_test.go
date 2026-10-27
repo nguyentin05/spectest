@@ -51,7 +51,7 @@ func TestGroundSetups_ValidationAndCycleDrop(t *testing.T) {
 		"a": {Use: []string{"b"}, Steps: []domain.Step{{Call: "POST {server}/login", Expect: 200}}},
 		"b": {Use: []string{"a"}, Steps: []domain.Step{{Call: "POST {server}/login", Expect: 200}}},
 	}
-	valid, _, warns = groundSetups(cyclicSetups, facts, apis, servers, nil)
+	valid, _, _ = groundSetups(cyclicSetups, facts, apis, servers, nil)
 	if len(valid) != 0 {
 		t.Fatalf("expected 0 valid setups for cyclic dependency, got %d", len(valid))
 	}
