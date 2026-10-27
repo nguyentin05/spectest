@@ -11,10 +11,11 @@ import (
 )
 
 type validationOptions struct {
-	RequireAnalysis  bool
-	RequiredCoverage []string
-	AllowStaleAPIs   bool
-	WarnUncovered    bool
+	RequireAnalysis       bool
+	RequiredCoverage      []string
+	AllowStaleAPIs        bool
+	WarnUncovered         bool
+	AllowInferredStatuses bool
 }
 
 type validationResult struct {
@@ -235,8 +236,10 @@ func apiFromKey(key string) (domain.API, bool) {
 // and saves.
 func validateSemantics(s *domain.Suite, apiLookup map[string]domain.API, opts ...validationOptions) []error {
 	allowStale := false
+	allowInferred := false
 	if len(opts) > 0 {
 		allowStale = opts[0].AllowStaleAPIs
+		allowInferred = opts[0].AllowInferredStatuses
 	}
 	var errs []error
 
@@ -286,7 +289,7 @@ func validateSemantics(s *domain.Suite, apiLookup map[string]domain.API, opts ..
 		}
 
 		stepErrs, finalScope := validateStepsDeep(
-			"setup "+name, setup.Steps, apiLookup, serverSet, stepScope, bareSeedIndex,
+			"setup "+name, setup.Steps, apiLookup, serverSet, stepScope, bareSeedIndex, false,
 		)
 		errs = append(errs, stepErrs...)
 		setupScopes[name] = finalScope
@@ -310,7 +313,7 @@ func validateSemantics(s *domain.Suite, apiLookup map[string]domain.API, opts ..
 		}
 
 		stepErrs, _ := validateStepsDeep(
-			"scenario "+sc.ID, sc.Steps, apiLookup, serverSet, parentScope, bareSeedIndex,
+			"scenario "+sc.ID, sc.Steps, apiLookup, serverSet, parentScope, bareSeedIndex, allowInferred,
 		)
 		errs = append(errs, stepErrs...)
 	}
@@ -325,7 +328,12 @@ func validateStepsDeep(
 	serverSet map[string]struct{},
 	scope map[string]struct{},
 	bareIndex map[string][]string,
+	allowInferred ...bool,
 ) ([]error, map[string]struct{}) {
+	inferred := false
+	if len(allowInferred) > 0 {
+		inferred = allowInferred[0]
+	}
 	var errs []error
 
 	if len(steps) == 0 {
@@ -388,22 +396,25 @@ func validateStepsDeep(
 		}
 
 		pc, _ := parseCall(st.Call)
-		for _, p := range api.Parameters {
-			if p.In != "query" || !p.Required {
-				continue
+		isNegative := st.Expect >= 400 && st.Expect <= 599
+		if !isNegative {
+			for _, p := range api.Parameters {
+				if p.In != "query" || !p.Required {
+					continue
+				}
+				if !queryHasKey(pc.RawQuery, p.Name) {
+					errs = append(errs, fmt.Errorf("%s: step %d: missing required query param %q", owner, idx, p.Name))
+				}
 			}
-			if !queryHasKey(pc.RawQuery, p.Name) {
-				errs = append(errs, fmt.Errorf("%s: step %d: missing required query param %q", owner, idx, p.Name))
-			}
-		}
 
-		// Body schema
-		if api.Request != nil {
-			errs = append(errs, validateBodyDeep(owner, idx, st.Body, api.Request)...)
+			// Body schema
+			if api.Request != nil {
+				errs = append(errs, validateBodyDeep(owner, idx, st.Body, api.Request)...)
+			}
 		}
 
 		// Status
-		errs = append(errs, validateStatus(owner, idx, st.Expect, api.Responses)...)
+		errs = append(errs, validateStatus(owner, idx, st.Expect, api.Responses, inferred)...)
 
 		// Add saves to scope for subsequent steps
 		for saveName := range st.Save {
@@ -515,11 +526,14 @@ func checkBodyValue(owner string, idx int, val any, schema domain.Schema, top bo
 	return errs
 }
 
-func validateStatus(owner string, idx, expect int, responses map[string]domain.Schema) []error {
+func validateStatus(owner string, idx, expect int, responses map[string]domain.Schema, allowInferred ...bool) []error {
+	if expect < 100 || expect > 599 {
+		return []error{fmt.Errorf("%s: step %d: expect %d out of range 100-599", owner, idx, expect)}
+	}
+	if len(allowInferred) > 0 && allowInferred[0] {
+		return nil
+	}
 	if len(responses) == 0 {
-		if expect < 100 || expect > 599 {
-			return []error{fmt.Errorf("%s: step %d: expect %d out of range 100-599", owner, idx, expect)}
-		}
 		return nil
 	}
 	if _, ok := responses[fmt.Sprintf("%d", expect)]; ok {
@@ -551,6 +565,9 @@ func checkTemplates(scope map[string]struct{}, bareIndex map[string][]string, ow
 	walkStrings(val, func(s string) {
 		for _, m := range templateRe.FindAllStringSubmatch(s, -1) {
 			name := m[1]
+			if name == "random" {
+				continue
+			}
 			if _, ok := scope[name]; ok {
 				continue
 			}

@@ -1,0 +1,29 @@
+<<CORE_RULES>>
+
+You are a QA lead reconciling OpenAPI specifications with business requirements.
+The operations list provided in the input is authoritative for all endpoint keys, methods, paths, and documented statuses.
+
+Input Payload:
+<<PAYLOAD>>
+
+Return exactly ONE JSON object matching this schema:
+{
+  "global_notes": [
+    "string: key business rules, authentication constraints, or seed requirements from the requirements document"
+  ],
+  "overrides": [
+    {
+      "api": "exact operation key from input",
+      "item": "e.g. status code or payload field",
+      "openapi": "value from OpenAPI",
+      "spec": "conflicting value from requirements"
+    }
+  ],
+  "ambiguities": [
+    "string: any unclear or conflicting statements between requirements and OpenAPI"
+  ],
+  "missing_info": [
+    "string: information missing from requirements that had to rely strictly on OpenAPI"
+  ],
+  "requirements_language": "English | Vietnamese | ... | unknown"
+}

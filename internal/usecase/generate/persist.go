@@ -110,7 +110,7 @@ func joinDisplayPath(dir, name string) string {
 
 // buildInitialFileSet assembles the files for a first run.
 func (g *Generator) buildInitialFileSet(
-	src *domain.SourceSet, suite *domain.Suite, mentions []domain.APIMention,
+	src *domain.SourceSet, suite *domain.Suite,
 ) *domain.FileSet {
 	normalized := normalizeSuite(suite)
 	return &domain.FileSet{
@@ -119,6 +119,5 @@ func (g *Generator) buildInitialFileSet(
 			Base:   g.buildBaseEntry(src, normalized),
 			Update: []domain.UpdateEntry{},
 		},
-		Track: buildTrack(src, nil, 0, mentions),
 	}
 }

@@ -1,0 +1,57 @@
+<<CORE_RULES>>
+
+You are designing reusable setup procedures and seed data for an API test suite.
+A setup block is a reusable dependency step sequence (e.g. creating a user, logging in to obtain a token).
+
+Input Payload:
+<<PAYLOAD>>
+
+Return exactly ONE JSON object matching this schema:
+{
+  "seed": {
+    "<seed_group>": {
+      "vars": {
+        "<var_name>": "<literal value>"
+      }
+    }
+  },
+  "setup": {
+    "<setup_name>": {
+      "use": ["<optional dependency setup names>"],
+      "vars": {
+        "email": "user_{{random}}@example.com",
+        "password": "Password123!"
+      },
+      "steps": [
+        {
+          "call": "METHOD {<<SERVER_ALIAS>>}/path",
+          "headers": { "Content-Type": "application/json" },
+          "body": { "email": "{{email}}", "password": "{{password}}" },
+          "expect": 200,
+          "save": { "token": "body.token" }
+        }
+      ]
+    }
+  },
+  "unresolved": [
+    {
+      "api": "target API key or *",
+      "missing": "prerequisite data or dependency that could not be verified",
+      "affects": "what cannot be tested"
+    }
+  ],
+  "assumptions": [
+    {
+      "area": "category, e.g. authentication flow",
+      "statement": "what was assumed",
+      "reason": "why it was assumed"
+    }
+  ]
+}
+
+Setup Rules:
+- "seed": Use literal values from global notes/requirements when available, otherwise clean defaults. No {{...}} in seed.
+- "setup": Setup names must match ^[a-z][a-z0-9_]*$. Every step must call an operation from input operations.
+- "vars" in setup: Use local setup "vars" with "{{random}}" for fields with unique constraints (e.g. "email": "user_{{random}}@example.com") so multiple scenarios can call the setup without database conflict. Reference them in steps as "{{email}}".
+- "save": Only use "body.<field>" when the endpoint's response documents a body with that field.
+- "unresolved": If prerequisites cannot be confirmed without guessing, record them in unresolved instead of guessing.

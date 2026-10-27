@@ -1,0 +1,54 @@
+<<CORE_RULES>>
+
+You are designing test scenarios for ONE target API endpoint.
+You are provided with the target API details, its specific operation schema, seed data, and available reusable setups.
+
+Input Payload:
+<<PAYLOAD>>
+
+Return exactly ONE JSON object matching this schema:
+{
+  "api": "target API key",
+  "scenarios": [
+    {
+      "id": "kebab-case-unique-id",
+      "name": "Clear descriptive title",
+      "setup": ["optional available setup names"],
+      "steps": [
+        {
+          "call": "METHOD {<<SERVER_ALIAS>>}/path",
+          "headers": { "Authorization": "Bearer {{access_token}}" },
+          "body": { "field": "value" },
+          "expect": 200,
+          "save": { "token": "body.token" }
+        }
+      ]
+    }
+  ],
+  "inferred_expectations": [
+    {
+      "scenario_id": "id of the scenario",
+      "expect": 401,
+      "basis": "standard auth rejection",
+      "reason": "why this status code was expected despite not being explicitly documented in responses"
+    }
+  ],
+  "skipped_cases": [
+    {
+      "case": "case description",
+      "reason": "why this case could not be tested safely or deterministically"
+    }
+  ],
+  "no_scenario_reason": null
+}
+
+Scenario Rules:
+- At least one step must call the target API.
+- All steps must only call the target API. Multi-endpoint prerequisites belong in "setup".
+- "id" must be lowercase kebab-case (e.g. login-success, login-invalid-password).
+- Variable references: ALWAYS use double curly braces {{variable}} in headers and body (e.g. "Authorization": "Bearer {{access_token}}", "email": "{{email}}"). NEVER write "{access_token}" with single braces.
+- Unique values: When creating or registering new records, use "{{random}}" (e.g. "newuser_{{random}}@example.com") so the test passes repeatedly on persistent databases without duplicate conflicts.
+- Happy path: Provide valid fields matching the operation schema and seed/setup variables.
+- Boundary & Negative tests: Intentionally modify exactly one field per scenario (e.g. omit required field, invalid format, out of bounds).
+- "expect": Must be a documented status code, OR an explicitly declared entry in "inferred_expectations".
+- If no scenarios can be generated with confidence, set "scenarios": [] and provide "no_scenario_reason".
