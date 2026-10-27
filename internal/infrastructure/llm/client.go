@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 const (
 	defaultTimeout = 120 * time.Second
 	maxAttempts    = 3
+	max429Attempts = 6
 	baseBackoff    = 500 * time.Millisecond
 	maxBackoff     = 8 * time.Second
 	maxRetryAfter  = 30 * time.Second
@@ -64,28 +66,47 @@ func (c *Client) Name() string {
 // containing the system instruction and user prompt to `<endpoint>/chat/completions`,
 // strips surrounding Markdown code fences if present, and returns the raw JSON string.
 // Transient failures (408/429/5xx, network errors, per-attempt timeouts) are retried
-// with exponential backoff up to maxAttempts.
+// with exponential backoff up to maxAttempts (or max429Attempts for rate limits).
 func (c *Client) GenerateStructured(ctx context.Context, systemPrompt string, userPrompt string, _ any) (string, error) {
 	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for attempt := 1; attempt <= max429Attempts; attempt++ {
 		raw, retryable, retryAfter, err := c.doRequest(ctx, systemPrompt, userPrompt)
 		if err == nil {
 			return raw, nil
 		}
 		lastErr = err
-		if !retryable || attempt == maxAttempts {
+		limit := maxAttempts
+		if isRateLimit(err) {
+			limit = max429Attempts
+		}
+		if !retryable || attempt >= limit {
 			break
 		}
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
 		delay := backoffDelay(attempt, retryAfter)
+		if isRateLimit(err) && retryAfter == 0 {
+			// Backoff for 429 rate limit to span across 60s quota windows
+			delay = time.Duration(1<<attempt) * 2 * time.Second
+			if delay > maxRetryAfter {
+				delay = maxRetryAfter
+			}
+		}
 		slog.Debug("retrying llm request", "attempt", attempt, "delay", delay.String(), "error", err)
 		if err := c.sleep(ctx, delay); err != nil {
 			return "", err
 		}
 	}
 	return "", lastErr
+}
+
+func isRateLimit(err error) bool {
+	var se *statusError
+	if errors.As(err, &se) {
+		return se.Code == http.StatusTooManyRequests
+	}
+	return false
 }
 
 // doRequest performs a single chat completion attempt bounded by c.timeout.

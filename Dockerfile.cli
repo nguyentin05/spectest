@@ -4,6 +4,13 @@
 # Multi-platform build from native Go builder without QEMU emulation:
 #   docker run --rm -v "$PWD:/workspace" ghcr.io/nguyentin05/spectest:latest run -f /workspace/spectest.yaml
 
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web-build
+WORKDIR /web
+COPY web/package*.json ./
+RUN if [ -f package.json ]; then npm ci; fi
+COPY web/ ./
+RUN if [ -f package.json ]; then npm run build; else mkdir -p dist && touch dist/.gitkeep; fi
+
 FROM --platform=$BUILDPLATFORM golang:1.25.0-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
@@ -13,6 +20,8 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+RUN mkdir -p internal/adapter/ui/dist
+COPY --from=web-build /web/dist/ internal/adapter/ui/dist/
 RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
     -ldflags "-s -w -X github.com/nguyentin05/spectest/internal/platform/buildinfo.version=${VERSION}" \
     -o /out/spectest ./cmd/spectest
