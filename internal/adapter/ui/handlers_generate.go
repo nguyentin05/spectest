@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -83,9 +82,10 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "each API item must have non-empty 'server' and 'path'")
 			return
 		}
-		resolvedPath := filePath
-		if _, err := os.Stat(resolvedPath); err != nil && !filepath.IsAbs(resolvedPath) && s.workDir != "" {
-			resolvedPath = filepath.Join(s.workDir, filePath)
+		resolvedPath, err := s.safeFilePath(filePath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid API spec path for server %q: %v", serverName, err))
+			return
 		}
 		if _, err := os.Stat(resolvedPath); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("API spec file not found for server %q: %s", serverName, filePath))
@@ -99,10 +99,11 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resolvedReqPath := ""
-	if req.ReqPath != "" {
-		reqPath := strings.TrimSpace(req.ReqPath)
-		if _, err := os.Stat(reqPath); err != nil && !filepath.IsAbs(reqPath) && s.workDir != "" {
-			reqPath = filepath.Join(s.workDir, reqPath)
+	if strings.TrimSpace(req.ReqPath) != "" {
+		reqPath, err := s.safeFilePath(req.ReqPath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid requirements file path: %v", err))
+			return
 		}
 		if _, err := os.Stat(reqPath); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("requirements file not found: %s", req.ReqPath))
@@ -111,9 +112,10 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		resolvedReqPath = reqPath
 	}
 
-	resolvedOutputDir := strings.TrimSpace(req.OutputDir)
-	if !filepath.IsAbs(resolvedOutputDir) && s.workDir != "" {
-		resolvedOutputDir = filepath.Join(s.workDir, resolvedOutputDir)
+	resolvedOutputDir, err := s.safePath(req.OutputDir)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid output directory: %v", err))
+		return
 	}
 
 	s.sessionMgr.AppendLog(fmt.Sprintf("Generating test suite for servers [%s], output dir: %s...",

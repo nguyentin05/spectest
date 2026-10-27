@@ -75,10 +75,16 @@ func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	mode := strings.ToLower(strings.TrimSpace(req.Mode))
 	composeFile := ""
 	if mode == "compose" {
-		composeFile = strings.TrimSpace(req.ComposeFile)
-		if composeFile == "" {
-			composeFile = "docker-compose.yml"
+		rawCompose := strings.TrimSpace(req.ComposeFile)
+		if rawCompose == "" {
+			rawCompose = "docker-compose.yml"
 		}
+		safeCompose, err := s.safeFilePath(rawCompose)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid compose file: %v", err))
+			return
+		}
+		composeFile = safeCompose
 	}
 
 	lifecycle := server.NewLifecycleManager(composeFile, rawURL, timeoutSec)

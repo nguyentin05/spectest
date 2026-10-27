@@ -44,14 +44,17 @@ func (s *Server) handleReadMarkdown(w http.ResponseWriter, r *http.Request) {
 		content = req.Content
 		path = req.Path
 	} else if strings.TrimSpace(req.Path) != "" {
-		path = strings.TrimSpace(req.Path)
-		// Clean and verify existence
-		cleanPath := filepath.Clean(path)
-		data, err := os.ReadFile(cleanPath)
+		safePath, err := s.safeFilePath(req.Path)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("cannot read markdown file %q: %v", cleanPath, err))
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		data, err := os.ReadFile(safePath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("cannot read markdown file %q: %v", safePath, err))
+			return
+		}
+		path = safePath
 		content = string(data)
 	} else {
 		// Look for default test_matrix.md

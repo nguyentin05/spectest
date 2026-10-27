@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -46,11 +47,18 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	suitePath := strings.TrimSpace(req.SuitePath)
-	if suitePath == "" {
+	if suitePath != "" {
+		safe, err := s.safeFilePath(suitePath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid suite path: %v", err))
+			return
+		}
+		suitePath = safe
+	} else {
 		candidates := []string{
-			"spectest.yaml",
-			"spectest.yml",
-			"tests/spectest.yaml",
+			filepath.Join(s.workDir, "spectest.yaml"),
+			filepath.Join(s.workDir, "spectest.yml"),
+			filepath.Join(s.workDir, "tests", "spectest.yaml"),
 		}
 		for _, c := range candidates {
 			if _, err := suitefile.LoadSuite(c); err == nil {
@@ -59,7 +67,7 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if suitePath == "" {
-			suitePath = "spectest.yaml"
+			suitePath = filepath.Join(s.workDir, "spectest.yaml")
 		}
 	}
 
@@ -117,8 +125,19 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 	sess.InitReport(targets, 0, 0)
 	s.sessionMgr.AppendLog(fmt.Sprintf("[%s] Test run scheduled against %s", runID, defaultTarget))
 
+	logPath := strings.TrimSpace(req.LogPath)
+	if logPath != "" {
+		safe, err := s.safeFilePath(logPath)
+		if err != nil {
+			cancel()
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid log path: %v", err))
+			return
+		}
+		logPath = safe
+	}
+
 	// Launch async execution using unified usecase runner
-	go s.executeTestSuite(ctx, sess, suite, suitePath, targets, defaultTarget, req.Timeout, req.Triage, req.OnlyChanged, req.LogPath)
+	go s.executeTestSuite(ctx, sess, suite, suitePath, targets, defaultTarget, req.Timeout, req.Triage, req.OnlyChanged, logPath)
 
 	writeJSON(w, http.StatusAccepted, runStartResponse{
 		RunID:     runID,

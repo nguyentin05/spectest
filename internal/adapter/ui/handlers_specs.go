@@ -105,10 +105,13 @@ func (s *Server) handleUploadSpec(w http.ResponseWriter, r *http.Request) {
 			_ = file.Close()
 		}()
 
-		baseName := filepath.Base(header.Filename)
 		destDir := filepath.Join(s.workDir, ".spectest_ui_uploads")
 		_ = os.MkdirAll(destDir, 0o755)
-		destPath := filepath.Join(destDir, baseName)
+		destPath, baseName, err := safeUploadDest(destDir, header.Filename)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 
 		out, err := os.Create(destPath)
 		if err != nil {
@@ -148,27 +151,25 @@ func (s *Server) handleUploadSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := strings.TrimSpace(req.FileName)
-	if name == "" {
-		writeError(w, http.StatusBadRequest, "file_name is required")
-		return
-	}
-
 	destDir := filepath.Join(s.workDir, ".spectest_ui_uploads")
 	_ = os.MkdirAll(destDir, 0o755)
-	destPath := filepath.Join(destDir, filepath.Base(name))
+	destPath, safeName, err := safeUploadDest(destDir, req.FileName)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if err := os.WriteFile(destPath, []byte(req.Content), 0o644); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to write file: "+err.Error())
 		return
 	}
 
-	s.sessionMgr.AppendLog("Saved spec file: " + name)
+	s.sessionMgr.AppendLog("Saved spec file: " + safeName)
 	writeJSON(w, http.StatusOK, uploadResponse{
 		Success:  true,
-		FileName: name,
+		FileName: safeName,
 		Path:     destPath,
-		Type:     detectFileType(name),
+		Type:     detectFileType(safeName),
 		Size:     int64(len(req.Content)),
 	})
 }
@@ -180,11 +181,17 @@ func (s *Server) handleGetPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	suitePath := r.URL.Query().Get("path")
-	if suitePath == "" {
+	rawPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	var suitePath string
+	if rawPath != "" {
+		safe, err := s.safeFilePath(rawPath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		suitePath = safe
+	} else {
 		candidates := []string{
-			"spectest.yaml",
-			"spectest.yml",
 			filepath.Join(s.workDir, "spectest.yaml"),
 			filepath.Join(s.workDir, "spectest.yml"),
 			filepath.Join(s.workDir, "tests", "spectest.yaml"),
@@ -274,11 +281,17 @@ func (s *Server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logPath := r.URL.Query().Get("path")
-	if logPath == "" {
+	rawPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	var logPath string
+	if rawPath != "" {
+		safe, err := s.safeFilePath(rawPath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		logPath = safe
+	} else {
 		candidates := []string{
-			"spectest.log.yaml",
-			"spectest.log.yml",
 			filepath.Join(s.workDir, "spectest.log.yaml"),
 			filepath.Join(s.workDir, "spectest.log.yml"),
 			filepath.Join(s.workDir, "tests", "spectest.log.yaml"),

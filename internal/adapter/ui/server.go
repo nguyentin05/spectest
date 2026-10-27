@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,6 +30,9 @@ type Server struct {
 func NewServer(addr string, workDir string, f *cmdutil.Factory) *Server {
 	if workDir == "" {
 		workDir, _ = os.Getwd()
+	}
+	if abs, err := filepath.Abs(workDir); err == nil {
+		workDir = abs
 	}
 	return &Server{
 		addr:       addr,
