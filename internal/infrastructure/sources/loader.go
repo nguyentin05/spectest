@@ -43,9 +43,10 @@ func (l *Loader) Load(ctx context.Context, inputs []domain.APIInput, requirement
 	}
 
 	set := &domain.SourceSet{
-		Servers: make([]string, 0, len(inputs)),
-		APIs:    make([]domain.API, 0),
-		OpenAPI: make(map[string]domain.FileState, len(inputs)),
+		Servers:    make([]string, 0, len(inputs)),
+		APIs:       make([]domain.API, 0),
+		OpenAPI:    make(map[string]domain.FileState, len(inputs)),
+		OpenAPIRaw: make(map[string]string, len(inputs)),
 	}
 	seen := make(map[string]struct{}, len(inputs))
 
@@ -82,6 +83,7 @@ func (l *Loader) Load(ctx context.Context, inputs []domain.APIInput, requirement
 
 		set.Servers = append(set.Servers, input.Server)
 		set.OpenAPI[input.Server] = domain.FileState{File: input.Path, Hash: sourceHash(raw)}
+		set.OpenAPIRaw[input.Server] = string(raw)
 		set.APIs = append(set.APIs, apis...)
 	}
 

@@ -1,7 +1,7 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import type { RunReport } from "../api/types";
+import type { RunReport, RunRequest } from "../api/types";
 import { mockState } from "../mocks/store";
 import { server } from "../mocks/server";
 import { renderAt } from "../test/render";
@@ -70,6 +70,7 @@ it("streams a run and shows every step on the signal spine", async () => {
 });
 
 it("shows step errors and AI diagnosis from the real stream", async () => {
+  let reportCalls = 0;
   server.use(
     http.get("/api/run/stream", () =>
       streamEvents([
@@ -121,7 +122,12 @@ it("shows step errors and AI diagnosis from the real stream", async () => {
         },
       ]),
     ),
-    http.get("/api/run/report", () => HttpResponse.json(failedReport)),
+    http.get("/api/run/report", () => {
+      reportCalls += 1;
+      return reportCalls === 1
+        ? HttpResponse.json({ error: true, message: "no report yet" }, { status: 404 })
+        : HttpResponse.json(failedReport);
+    }),
   );
 
   renderAt("/run?run=run-test");
@@ -129,6 +135,167 @@ it("shows step errors and AI diagnosis from the real stream", async () => {
   expect(await screen.findByText(/Expected 422, received 500/)).toBeInTheDocument();
   expect(screen.getByText(/Thiếu quyền admin trong token\./)).toBeInTheDocument();
   expect(await screen.findByText("Hoàn tất · 0/1 kịch bản đạt")).toBeInTheDocument();
+});
+
+it("restores the report instead of streaming a finished run", async () => {
+  let streamCalls = 0;
+  server.use(
+    http.get("/api/run/stream", () => {
+      streamCalls += 1;
+      return streamEvents([]);
+    }),
+    http.get("/api/run/report", () => HttpResponse.json(failedReport)),
+  );
+
+  renderAt("/run?run=run-test");
+
+  const summary = await screen.findByLabelText("Tóm tắt lần chạy");
+  expect(within(summary).getByText("0/1")).toBeInTheDocument();
+  expect(streamCalls).toBe(0);
+  expect(screen.queryByRole("button", { name: "Hủy phiên chạy" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Đang chạy")).not.toBeInTheDocument();
+});
+
+it("treats a failed run as finished and shows its report", async () => {
+  let reportCalls = 0;
+  server.use(
+    http.get("/api/run/stream", () =>
+      streamEvents([
+        {
+          type: "connected",
+          timestamp: "2026-10-26T10:00:00Z",
+          data: { run_id: "run-test", suite_path: "tests/spectest.yaml" },
+        },
+        {
+          type: "start",
+          timestamp: "2026-10-26T10:00:00Z",
+          message: "Beginning execution",
+          data: { total_scenarios: 1, servers: ["order"] },
+        },
+        {
+          type: "error",
+          timestamp: "2026-10-26T10:00:00.120Z",
+          message: "Suite execution failed",
+        },
+      ]),
+    ),
+    http.get("/api/run/report", () => {
+      reportCalls += 1;
+      return reportCalls === 1
+        ? HttpResponse.json({ error: true, message: "no report yet" }, { status: 404 })
+        : HttpResponse.json(failedReport);
+    }),
+  );
+
+  renderAt("/run?run=run-test");
+
+  expect(await screen.findByText("Suite execution failed")).toBeInTheDocument();
+  const summary = await screen.findByLabelText("Tóm tắt lần chạy");
+  expect(within(summary).getByText("0/1")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Hủy phiên chạy" })).not.toBeInTheDocument();
+});
+
+it("asks for a suite before running when none exists", async () => {
+  server.use(
+    http.get("/api/specs/plan", () =>
+      HttpResponse.json(
+        { error: true, message: "no spectest.yaml file found in workspace" },
+        { status: 404 },
+      ),
+    ),
+  );
+
+  renderAt("/run");
+
+  const title = await screen.findByRole("heading", { name: "Chưa có spectest.yaml" });
+  expect(
+    within(title.parentElement!).getByRole("link", { name: "Sinh kịch bản" }),
+  ).toHaveAttribute("href", "/generate");
+  expect(screen.queryByText("Backend chưa hỗ trợ cấu hình chạy.")).not.toBeInTheDocument();
+});
+
+it("defaults the suite to the plan path when the workspace does not list it", async () => {
+  let sentSuite = "";
+  server.use(
+    http.get("/api/specs/workspace", () =>
+      HttpResponse.json({ current_dir: "", items: [] }),
+    ),
+    http.get("/api/specs/plan", () =>
+      HttpResponse.json({ path: "custom/plan.yaml", servers: ["auth"] }),
+    ),
+    http.post("/api/run", async ({ request }) => {
+      const body = (await request.json()) as { suite_path: string };
+      sentSuite = body.suite_path;
+      return HttpResponse.json({
+        run_id: "run-custom",
+        status: "running",
+        message: "",
+        target_url: "",
+        suite_path: body.suite_path,
+      });
+    }),
+  );
+
+  renderAt("/run");
+
+  expect(await screen.findByLabelText("Suite")).toHaveValue("custom/plan.yaml");
+  await userEvent.type(
+    screen.getByLabelText("Địa chỉ máy chủ đích"),
+    "http://localhost:8080",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Bắt đầu chạy" }));
+  await waitFor(() => expect(sentSuite).toBe("custom/plan.yaml"));
+});
+
+it("sends AI triage, change-only, and a custom log path", async () => {
+  let body: RunRequest | null = null;
+  server.use(
+    http.post("/api/run", async ({ request }) => {
+      body = (await request.json()) as RunRequest;
+      return HttpResponse.json({
+        run_id: "run-options",
+        status: "running",
+        message: "",
+        target_url: "",
+        suite_path: "",
+      });
+    }),
+  );
+
+  renderAt("/run");
+  await userEvent.type(
+    await screen.findByLabelText("Địa chỉ máy chủ đích"),
+    "http://localhost:8080",
+  );
+  await userEvent.click(screen.getByRole("checkbox", { name: "Chẩn đoán AI khi lỗi" }));
+  await userEvent.click(screen.getByRole("checkbox", { name: "Chỉ chạy thay đổi" }));
+  await userEvent.type(
+    screen.getByLabelText("Tệp log lịch sử (tuỳ chọn)"),
+    "tests/custom.log.yaml",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Bắt đầu chạy" }));
+
+  await waitFor(() =>
+    expect(body).toMatchObject({
+      triage: true,
+      only_changed: true,
+      log_path: "tests/custom.log.yaml",
+    }),
+  );
+});
+
+it("explains when the backend cannot load the run configuration", async () => {
+  server.use(
+    http.get("/api/specs/plan", () =>
+      HttpResponse.json({ error: true, message: "not implemented" }, { status: 501 }),
+    ),
+  );
+
+  renderAt("/run");
+
+  expect(
+    await screen.findByText("Backend chưa hỗ trợ chạy kiểm thử."),
+  ).toBeInTheDocument();
 });
 
 it("cancels a run and reports it", async () => {
@@ -179,7 +346,7 @@ it("shows the server message when a run cannot be cancelled", async () => {
   await userEvent.click(await screen.findByRole("button", { name: "Hủy phiên chạy" }));
   await userEvent.click(await screen.findByRole("button", { name: "Xác nhận hủy" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "no active test run is in progress",
+    "Không có phiên chạy nào đang diễn ra.",
   );
   expect(
     screen.queryByText("Phiên chạy đã dừng theo yêu cầu."),

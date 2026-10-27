@@ -1,0 +1,53 @@
+# SpecTest CLI Setup Template for GitLab CI
+# This template demonstrates setting up the SpecTest binary and verifying installation.
+
+stages:
+  - setup
+
+# Option 1: Download and install the binary on a Linux runner
+setup-spectest-binary:
+  stage: setup
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl tar
+  script:
+    # 1. Determine version and architecture
+    - |
+      SPECTEST_VERSION="latest"
+      if [ "$SPECTEST_VERSION" = "latest" ]; then
+        SPECTEST_VERSION=$(curl -sI https://github.com/nguyentin05/spectest/releases/latest | grep -i '^location:' | sed 's/.*tag\///' | tr -d '\r\n')
+      fi
+
+      ARCH=$(uname -m)
+      case "$ARCH" in
+        x86_64) ARCH="amd64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;;
+      esac
+
+      # 2. Download and install binary into /usr/local/bin
+      echo "Installing SpecTest ${SPECTEST_VERSION} (${ARCH})..."
+      curl -fsSL "https://github.com/nguyentin05/spectest/releases/download/${SPECTEST_VERSION}/spectest_${SPECTEST_VERSION#v}_linux_${ARCH}.tar.gz" -o spectest.tar.gz
+      tar -xzf spectest.tar.gz spectest
+      mv spectest /usr/local/bin/spectest
+      chmod +x /usr/local/bin/spectest
+      rm -f spectest.tar.gz
+
+    # 3. Verify installation
+    - spectest --version
+
+    # Next steps: Add your test execution or generation commands below
+    # Example:
+    #   - spectest run -f spectest.yaml -t http://api:8080
+
+# Option 2 (Alternative): Use the pre-built official container image
+setup-spectest-docker:
+  stage: setup
+  image:
+    name: ghcr.io/nguyentin05/spectest:latest
+    entrypoint: [""]
+  script:
+    # Binary is already pre-installed at /usr/local/bin/spectest
+    - spectest --version
+
+    # Next steps: Add your test execution or generation commands below

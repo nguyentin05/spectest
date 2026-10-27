@@ -1,0 +1,24 @@
+<<CORE_RULES>>
+
+You are writing the narrative analysis section of an API test suite report.
+Report strictly based on the statistics and review notes provided. Do not invent any numbers, APIs, or scenarios.
+
+Input Payload:
+<<PAYLOAD>>
+
+Return exactly ONE JSON object matching this schema:
+{
+  "analysis": "Markdown text describing API scope, test coverage, rationale for setups and key test cases, reasons for any omitted or inferred tests, and instructions for reviewers. Write strictly in the output_language specified in the input payload.",
+  "assumptions": [
+    {
+      "area": "area of assumption",
+      "statement": "what was assumed",
+      "reason": "why it was assumed"
+    }
+  ]
+}
+
+Analysis Rules:
+- Use stats exactly as provided in the input payload.
+- Write in output_language ("English", "Vietnamese", etc.).
+- Do NOT output HTML comments, warning markers, or assumption markers (e.g. <!-- spectest:warnings:start -->): code appends those managed blocks.

@@ -86,7 +86,7 @@ export type PlanStep = {
 };
 
 export type PlanSetup = {
-  vars?: Record<string, string>;
+  vars?: Record<string, unknown>;
   use?: string[];
   steps: PlanStep[];
 };
@@ -109,7 +109,7 @@ export type PlanStats = {
 };
 
 export type PlanSeed = {
-  vars: Record<string, string>;
+  vars: Record<string, unknown>;
 };
 
 export type PlanResponse = {
@@ -128,6 +128,7 @@ export type HistoryOpenApiTrigger = {
   added: string[];
   changed: string[];
   removed: string[];
+  restored: string[];
 };
 
 export type HistoryRequirementsTrigger = {
@@ -141,6 +142,7 @@ export type HistoryTrigger = {
 };
 
 export type HistoryCreate = {
+  seed_added: string[];
   setup_added: string[];
   scenarios_added: string[];
 };
@@ -160,7 +162,7 @@ export type HistoryUpdate = {
   note: string;
   trigger: HistoryTrigger;
   create: HistoryCreate;
-  change: HistoryChange[];
+  change?: HistoryChange[];
   after_hash: string;
 };
 
@@ -168,7 +170,7 @@ export type HistoryBase = {
   at: string;
   by: string;
   after_hash: string;
-  spectest_summary: {
+  spectest_summary?: {
     servers: string[];
     apis_count: number;
     scenarios_count: number;
@@ -208,6 +210,9 @@ export type RunRequest = {
   target_url?: string;
   targets?: Record<string, string>;
   timeout_seconds?: number;
+  triage?: boolean;
+  only_changed?: boolean;
+  log_path?: string;
 };
 
 export type RunStartResponse = {

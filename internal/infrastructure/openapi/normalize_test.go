@@ -8,6 +8,39 @@ import (
 	"github.com/nguyentin05/spectest/internal/domain"
 )
 
+func TestNormalize_CapturesRawSnippet(t *testing.T) {
+	raw := []byte(`openapi: 3.0.0
+info: {title: Test, version: 1.0.0}
+paths:
+  /login:
+    post:
+      summary: User login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: {type: string, format: email}
+                password: {type: string, minLength: 8}
+      responses:
+        '200':
+          description: OK
+`)
+	apis, err := Normalize("server", raw)
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if len(apis) == 0 || apis[0].RawSnippet == "" {
+		t.Fatal("expected non-empty RawSnippet on normalized API")
+	}
+	if !strings.Contains(apis[0].RawSnippet, "email") {
+		t.Errorf("expected RawSnippet to contain schema property 'email', got: %s", apis[0].RawSnippet)
+	}
+}
+
 func normalizeOK(t *testing.T, server, raw string) []domain.API {
 	t.Helper()
 	apis, err := Normalize(server, []byte(raw))

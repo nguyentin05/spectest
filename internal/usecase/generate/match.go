@@ -68,12 +68,10 @@ func parseCall(raw string) (parsedCall, error) {
 //
 //	"/"            → nil
 //	"/api/orders"  → ["api", "orders"]
+//	"/api/orders/" → ["api", "orders"]
 //	"/api//orders" → ["api", "", "orders"]
 func splitCallPath(path string) []string {
-	if path == "" || path == "/" {
-		return nil
-	}
-	p := strings.TrimPrefix(path, "/")
+	p := strings.Trim(path, "/")
 	if p == "" {
 		return nil
 	}

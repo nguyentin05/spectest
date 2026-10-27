@@ -19,7 +19,7 @@ export function PlanHeader({ plan }: { plan: PlanResponse }) {
         </div>
         <div className="st-plan-header__servers">
           <span className="st-suite__hint">Máy chủ:</span>
-          {plan.servers.map((server) => (
+          {(plan.servers ?? []).map((server) => (
             <Badge key={server} mono>
               {server}
             </Badge>
@@ -29,10 +29,10 @@ export function PlanHeader({ plan }: { plan: PlanResponse }) {
 
       <StatGrid
         items={[
-          { id: "scenarios", label: "Kịch bản", value: plan.stats.total_scenarios },
-          { id: "setups", label: "Setup", value: plan.stats.total_setups },
-          { id: "steps", label: "Bước", value: plan.stats.total_steps },
-          { id: "locked", label: "Khóa", value: plan.stats.locked_scenarios },
+          { id: "scenarios", label: "Kịch bản", value: plan.stats?.total_scenarios ?? 0 },
+          { id: "setups", label: "Setup", value: plan.stats?.total_setups ?? 0 },
+          { id: "steps", label: "Bước", value: plan.stats?.total_steps ?? 0 },
+          { id: "locked", label: "Khóa", value: plan.stats?.locked_scenarios ?? 0 },
         ]}
       />
 
@@ -40,7 +40,7 @@ export function PlanHeader({ plan }: { plan: PlanResponse }) {
         <div>
           <p className="st-step__label">API trong suite</p>
           <ul className="st-plan-header__apis">
-            {plan.apis.map((call) => {
+            {(plan.apis ?? []).map((call) => {
               const { method, path } = splitApi(call);
               return (
                 <li key={call}>

@@ -38,7 +38,7 @@ export function ScenarioCard({ scenario }: { scenario: PlanScenario }) {
       <div className="st-scenario__meta">
         <code className="st-scenario__id">{scenario.id}</code>
         <CopyButton value={scenario.id} label={`ID ${scenario.id}`} />
-        {scenario.setup.length > 0 ? (
+        {(scenario.setup && scenario.setup.length > 0) ? (
           scenario.setup.map((name) => (
             <Badge key={name} tone="brand">
               {name}

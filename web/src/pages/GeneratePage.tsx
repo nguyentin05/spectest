@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type {
   GeneratePendingResponse,
@@ -9,6 +9,7 @@ import type {
 import { api } from "../api/endpoints";
 import { isMissingEndpoint } from "../api/errors";
 import { useApi } from "../hooks/useApi";
+import { isOpenApiDocument } from "../lib/openapi";
 import { withQuery } from "../lib/url";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -67,8 +68,40 @@ function GenerateWizard({
   const [error, setError] = useState<Error | null>(null);
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [pending, setPending] = useState<GeneratePendingResponse | null>(null);
+  const [sniffedSpecs, setSniffedSpecs] = useState<string[]>([]);
 
-  const openapiItems = items.filter((item) => item.type === "openapi");
+  useEffect(() => {
+    const candidates = items.filter(
+      (item) => item.type === "other" && /\.(ya?ml|json)$/i.test(item.name),
+    );
+    if (candidates.length === 0) return;
+
+    let active = true;
+    // shortcut: the workspace walk mislabels specs by name, so reuse
+    // /markdown/read to sniff the first bytes; drop this when Go classifies by content.
+    void Promise.all(
+      candidates.map(async (item) => {
+        try {
+          const document = await api.markdown(item.path);
+          return isOpenApiDocument(document.content) ? item.name : null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((names) => {
+      if (active) {
+        setSniffedSpecs(names.filter((name): name is string => name !== null));
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [items]);
+
+  const openapiItems = items.filter(
+    (item) => item.type === "openapi" || sniffedSpecs.includes(item.name),
+  );
   const prdItems = items.filter((item) => item.type === "prd");
   const selectedItems = openapiItems.filter((item) => selected.includes(item.name));
   const aliasErrors = findAliasErrors(selectedItems, aliases);

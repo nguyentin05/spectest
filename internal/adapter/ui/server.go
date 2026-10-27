@@ -130,6 +130,11 @@ func (s *Server) Routes() http.Handler {
 				fileServer.ServeHTTP(w, r)
 				return
 			}
+			// Do not fall back to index.html for static assets under /assets/
+			if strings.HasPrefix(r.URL.Path, "/assets/") {
+				http.NotFound(w, r)
+				return
+			}
 			// Fallback to index.html for client-side routing
 			r.URL.Path = "/"
 			fileServer.ServeHTTP(w, r)

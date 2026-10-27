@@ -1,0 +1,50 @@
+// SpecTest CLI Setup Template for Jenkins Pipeline
+// This template demonstrates setting up the SpecTest binary and verifying installation.
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Setup SpecTest Binary') {
+            steps {
+                sh '''
+                    # 1. Determine version and architecture
+                    SPECTEST_VERSION="latest"
+                    if [ "$SPECTEST_VERSION" = "latest" ]; then
+                        SPECTEST_VERSION=$(curl -sI https://github.com/nguyentin05/spectest/releases/latest | grep -i '^location:' | sed 's/.*tag\///' | tr -d '\r\n')
+                    fi
+
+                    ARCH=$(uname -m)
+                    case "$ARCH" in
+                        x86_64) ARCH="amd64" ;;
+                        aarch64|arm64) ARCH="arm64" ;;
+                        *) echo "Unsupported architecture: $ARCH" && exit 1 ;;
+                    esac
+
+                    # 2. Download and unpack SpecTest binary
+                    echo "Downloading SpecTest ${SPECTEST_VERSION} (${ARCH})..."
+                    mkdir -p "$WORKSPACE/bin"
+                    curl -fsSL "https://github.com/nguyentin05/spectest/releases/download/${SPECTEST_VERSION}/spectest_${SPECTEST_VERSION#v}_linux_${ARCH}.tar.gz" -o spectest.tar.gz
+                    tar -xzf spectest.tar.gz spectest
+                    mv spectest "$WORKSPACE/bin/spectest"
+                    chmod +x "$WORKSPACE/bin/spectest"
+                    rm -f spectest.tar.gz
+
+                    # 3. Verify binary installation
+                    export PATH="$WORKSPACE/bin:$PATH"
+                    spectest --version
+
+                    # Next steps: Add your test execution or generation commands here
+                    # Example:
+                    #   spectest run -f spectest.yaml -t http://localhost:8080
+                '''
+            }
+        }
+    }
+}

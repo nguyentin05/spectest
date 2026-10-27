@@ -14,7 +14,8 @@ export function RunEventItem({ event }: { event: RunStreamEvent }) {
         <>
           <p className="st-timeline__title">Bắt đầu chạy suite</p>
           <p className="st-timeline__meta">
-            {event.data.total_scenarios} kịch bản · {event.data.servers.join(", ")}
+            {event.data.total_scenarios} kịch bản ·{" "}
+            {(event.data.servers ?? []).join(", ")}
           </p>
         </>
       );

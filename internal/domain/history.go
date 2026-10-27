@@ -46,7 +46,7 @@ type UpdateEntry struct {
 	Note         string       `yaml:"note,omitempty" json:"note,omitempty"`
 	Trigger      *Trigger     `yaml:"trigger,omitempty" json:"trigger,omitempty"`
 	CatalogPatch APICatalog   `yaml:"catalog_patch,omitempty" json:"catalog_patch,omitempty"`
-	Impact       UpdateImpact `yaml:"impact,omitempty" json:"impact,omitempty"`
+	Impact       UpdateImpact `yaml:"impact,omitempty" json:"impact"`
 	Create       *CreateSet   `yaml:"create,omitempty" json:"create,omitempty"`
 	Change       []Change     `yaml:"change,omitempty" json:"change,omitempty"`
 	AfterHash    string       `yaml:"after_hash" json:"after_hash"`

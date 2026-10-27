@@ -66,23 +66,101 @@ To keep AI costs low and test runs predictable, SpecTest offloads all determinis
 
 ### Prerequisites
 
-- *Coming soon...*
+- **Go 1.25+** (or download prebuilt binaries from [Releases](https://github.com/nguyentin05/spectest/releases))
+- An OpenAPI 3.x document (`openapi.yaml` or `openapi.json`)
+- *(Optional)* Product Requirement Document (PRD) or business requirements in Markdown (`requirements.md`)
+- *(Optional)* An API key for an LLM provider (Google Gemini, OpenAI) or a running local instance of [Ollama](https://ollama.ai)
 
-### 1. Local Development
+---
 
-- *Coming soon...*
+### 1. Local Development (CLI & Web UI)
 
-### 2. Cloud CI/CD
+#### Installation & Setup
+```bash
+# Install via Go
+go install github.com/nguyentin05/spectest/cmd/spectest@latest
 
-- *Coming soon...*
+# Configure LLM Provider (Google Gemini, OpenAI, or local Ollama)
+spectest config init --provider gemini --model gemini-2.5-flash
+spectest config set api-key
+```
 
-### 3. On-Premise Server
+#### Generate a Test Suite
+```bash
+# Initialize a new suite from OpenAPI and optional PRD requirements
+spectest generate --mode init -a shop=openapi.yaml -r requirements.md -o ./tests
+```
 
-- *Coming soon...*
+#### Run Tests
+```bash
+# Single target execution
+spectest run -f ./tests/spectest.yaml -t http://localhost:8080
 
-### 4. AI Coding Agents
+# Multi-target microservices
+spectest run -f ./tests/spectest.yaml -t shop=http://localhost:8001 -t billing=http://localhost:8002
 
-- *Coming soon...*
+# Run with automated Docker Compose lifecycle and AI defect triage
+spectest run -f ./tests/spectest.yaml --compose docker-compose.test.yml -t http://localhost:8080 --triage
+
+# Run only scenarios impacted by the latest update
+spectest run -f ./tests/spectest.yaml -t http://localhost:8080 --only-changed
+```
+
+#### Launch Web UI Dashboard
+```bash
+spectest ui
+```
+Opens the interactive React dashboard at `http://127.0.0.1:8088`.
+
+---
+
+### 2. Cloud CI/CD (GitHub Actions)
+
+Add automated API contract and regression quality gates to your repository using the official composite action:
+
+```yaml
+# .github/workflows/api-tests.yml
+name: API Regression Quality Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  spectest:
+    name: Run SpecTest API Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Execute SpecTest API Suite
+        uses: nguyentin05/spectest@v1
+        with:
+          test_file: "tests/spectest.yaml"
+          target_url: "http://localhost:8080"
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          report_dir: "reports"
+
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: "reports/junit.xml"
+```
+
+---
+
+### 3. On-Premise Server (Air-Gapped & Webhook Daemon)
+
+- *Coming soon: Self-hosted webhook daemon for private enterprise networks and Git webhooks.*
+
+---
+
+### 4. AI Coding Agents (MCP Server)
+
+- *Coming soon: Native Model Context Protocol (MCP) server adapter for AI coding agents (Claude Code, Cursor, Cline).*
 
 ## Team & Contributors
 

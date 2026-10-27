@@ -17,6 +17,12 @@ it("links a markdown file to the document reader", async () => {
   expect(link).toHaveAttribute("href", "/docs?path=docs%2Frequirements.md");
 });
 
+it("opens the evolution log from the workspace", async () => {
+  renderAt("/workspace");
+  const link = await screen.findByRole("link", { name: /Mở tests\/spectest.log.yaml/ });
+  expect(link).toHaveAttribute("href", "/history?path=tests%2Fspectest.log.yaml");
+});
+
 it("uploads a file via multipart and refreshes the list", async () => {
   renderAt("/workspace");
   const input = await screen.findByLabelText("Chọn tệp để tải lên");

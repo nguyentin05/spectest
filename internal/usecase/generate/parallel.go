@@ -65,3 +65,48 @@ func runBounded[T, R any](
 	}
 	return out, nil
 }
+
+// runAllBounded runs fn over items with at most `concurrency` calls in flight.
+// Unlike runBounded, an error in one item does NOT cancel the context for the
+// remaining items; all items are processed. Output results and errors are
+// returned by index. If the outer context is canceled, any unstarted items
+// receive ctx.Err().
+func runAllBounded[T, R any](
+	ctx context.Context,
+	items []T,
+	concurrency int,
+	fn func(ctx context.Context, index int, item T) (R, error),
+) ([]R, []error) {
+	out := make([]R, len(items))
+	errs := make([]error, len(items))
+	if len(items) == 0 {
+		return out, errs
+	}
+	n := max(1, min(concurrency, len(items)))
+
+	jobs := make(chan int, len(items))
+	for i := range items {
+		jobs <- i
+	}
+	close(jobs)
+
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			for i := range jobs {
+				if ctx.Err() != nil {
+					errs[i] = ctx.Err()
+					continue
+				}
+				r, err := fn(ctx, i, items[i])
+				if err != nil {
+					errs[i] = err
+				} else {
+					out[i] = r
+				}
+			}
+		})
+	}
+	wg.Wait()
+	return out, errs
+}

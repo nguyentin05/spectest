@@ -19,18 +19,19 @@ import (
 
 // options holds the parsed flag values for a single `spectest generate` invocation.
 type options struct {
-	apiValues []string
-	reqPath   string
-	outputDir string
-	mode      string
-	dryRun    bool
+	apiValues   []string
+	reqPath     string
+	outputDir   string
+	mode        string
+	dryRun      bool
+	concurrency int
 }
 
 // NewCommand creates the `spectest generate` subcommand. It supports `--mode init`
 // to generate a new suite and `--mode update` to incrementally synchronize an existing
 // suite with OpenAPI changes.
 func NewCommand(f *cmdutil.Factory) *cobra.Command {
-	opts := &options{outputDir: "./tests", mode: "init"}
+	opts := &options{outputDir: "./tests", mode: "init", concurrency: 2}
 
 	cmd := &cobra.Command{
 		Use:     "generate",
@@ -135,7 +136,14 @@ func runGenerate(cmd *cobra.Command, opts *options, f *cmdutil.Factory) error {
 		RequirementsPath: opts.reqPath,
 		OutputDir:        opts.outputDir,
 		DryRun:           opts.dryRun,
-		Concurrency:      1,
+		Concurrency:      opts.concurrency,
+		Progress: func(current, total int, message string) {
+			if total > 0 {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%d/%d] %s\n", current, total, message)
+			} else {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "▶ %s\n", message)
+			}
+		},
 	})
 	if err != nil {
 		return err

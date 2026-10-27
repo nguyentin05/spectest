@@ -1,4 +1,4 @@
-import { ApiError } from "./errors";
+import { ApiError, translateBackendError } from "./errors";
 
 const API_BASE = "/api";
 
@@ -52,7 +52,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
         : (response.headers.get("Content-Type") ?? "").startsWith("text/plain") && text.trim()
           ? text.trim()
           : `HTTP ${response.status}`);
-    throw new ApiError(response.status, message, payload);
+    throw new ApiError(response.status, translateBackendError(message), payload);
   }
 
   if (response.status === 204) {

@@ -20,7 +20,7 @@ function viewerFor(item: WorkspaceItem): Viewer | null {
     return { href: withQuery("/suite", { path: item.name }) };
   }
   if (item.type === "history") {
-    return { href: withQuery("/history", { dir: item.name }) };
+    return { href: withQuery("/history", { path: item.name }) };
   }
   return null;
 }

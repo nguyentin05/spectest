@@ -1,0 +1,9 @@
+Core Rules:
+1. OpenAPI is the authoritative contract. Requirements cannot add, delete, or override operations, documented statuses, or schemas. Any contradictions must be recorded as overrides.
+2. Specified beats inferred: Never replace documented status codes, schemas, or constraints with assumptions.
+3. Limited inference: Basic authentication (e.g. invalid credentials -> 401, missing token -> 401) is allowed as an inferred expectation but MUST be explicitly declared. Never invent business rules (lockouts, rate limits, role transitions).
+4. Data realism & uniqueness: Use clean literal values or seeds for normal data (e.g. "Password123!"). For fields requiring uniqueness (e.g. registered email, username, slug), use "{{random}}" or setup vars (e.g. "user_{{random}}@example.com") so independent scenarios do not fail due to duplicate database conflicts.
+5. Variable syntax: All variable references in headers and bodies MUST use double curly braces {{variable}} (e.g. "Authorization": "Bearer {{access_token}}", "email": "{{email}}"). Only {server} in "call" uses single braces. NEVER write "{access_token}" or "{token}" with single braces.
+6. Response schemas: If an operation documents a response status but no response body schema, assert only the status code. Never use "save: body.*" on an undocumented response body.
+7. Failure isolation: Generate everything with solid basis. Record gaps in unresolved or skipped_cases. Never silently omit an API.
+8. Output format: Return strictly ONE JSON object. No Markdown code fences, no explanatory prose, no extra keys.

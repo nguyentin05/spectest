@@ -13,6 +13,7 @@ type SourceSet struct {
 	Servers      []string             `yaml:"servers" json:"servers"`
 	APIs         []API                `yaml:"apis" json:"apis"`
 	OpenAPI      map[string]FileState `yaml:"openapi,omitempty" json:"openapi,omitempty"`
+	OpenAPIRaw   map[string]string    `yaml:"-" json:"-"`
 	Requirements *RequirementSource   `yaml:"requirements,omitempty" json:"requirements,omitempty"`
 }
 
@@ -35,6 +36,7 @@ type API struct {
 	Parameters  []APIParameter    `yaml:"parameters,omitempty" json:"parameters,omitempty"`
 	Request     *RequestSpec      `yaml:"request,omitempty" json:"request,omitempty"`
 	Responses   map[string]Schema `yaml:"responses,omitempty" json:"responses,omitempty"`
+	RawSnippet  string            `yaml:"raw_snippet,omitempty" json:"raw_snippet,omitempty"`
 }
 
 // APIParameter is a normalized path, query, header, or cookie parameter.

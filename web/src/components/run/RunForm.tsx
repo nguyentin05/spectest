@@ -1,12 +1,15 @@
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import type { HealthcheckResponse, RunRequest } from "../../api/types";
 import { api } from "../../api/endpoints";
-import { isMissingEndpoint } from "../../api/errors";
+import { ApiError, isMissingEndpoint } from "../../api/errors";
 import { useApi } from "../../hooks/useApi";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { CapabilityNotice } from "../ui/CapabilityNotice";
 import { Card } from "../ui/Card";
+import { Checkbox } from "../ui/Checkbox";
+import { EmptyState } from "../ui/EmptyState";
 import { ErrorState } from "../ui/ErrorState";
 import { Field } from "../ui/Field";
 import { LoadingBlock } from "../ui/LoadingBlock";
@@ -30,11 +33,14 @@ export function RunForm({ onStarted }: { onStarted: (runId: string) => void }) {
   const workspace = useApi(api.workspace);
   const plan = useApi(api.plan);
 
-  const [suitePath, setSuitePath] = useState("tests/spectest.yaml");
+  const [suitePath, setSuitePath] = useState("");
   const [mode, setMode] = useState<TargetMode>("single");
   const [targetUrl, setTargetUrl] = useState("");
   const [perServer, setPerServer] = useState<Record<string, string>>({});
   const [timeoutSeconds, setTimeoutSeconds] = useState("30");
+  const [triage, setTriage] = useState(false);
+  const [onlyChanged, setOnlyChanged] = useState(false);
+  const [logPath, setLogPath] = useState("");
   const [checking, setChecking] = useState(false);
   const [starting, setStarting] = useState(false);
   const [health, setHealth] = useState<HealthcheckResponse[] | null>(null);
@@ -46,8 +52,21 @@ export function RunForm({ onStarted }: { onStarted: (runId: string) => void }) {
     return <LoadingBlock label="Đang tải cấu hình chạy…" rows={3} />;
   }
   if (loadError) {
+    if (plan.error instanceof ApiError && plan.error.status === 404) {
+      return (
+        <EmptyState
+          title="Chưa có spectest.yaml"
+          description="Hãy sinh kịch bản đầu tiên rồi quay lại chạy kiểm thử."
+          action={
+            <Link className="st-btn st-btn--secondary" to="/generate">
+              Sinh kịch bản
+            </Link>
+          }
+        />
+      );
+    }
     return isMissingEndpoint(loadError) ? (
-      <CapabilityNotice feature="cấu hình chạy" error={loadError} />
+      <CapabilityNotice feature="chạy kiểm thử" error={loadError} />
     ) : (
       <ErrorState
         error={loadError}
@@ -61,6 +80,8 @@ export function RunForm({ onStarted }: { onStarted: (runId: string) => void }) {
 
   const suiteItems = (workspace.data?.items ?? []).filter((item) => item.type === "suite");
   const servers = plan.data?.servers ?? [];
+  const planPath = plan.data?.path ?? "";
+  const selectedSuite = suitePath || planPath || suiteItems[0]?.name || "";
 
   function currentTargets(): string[] {
     if (mode === "single") return [targetUrl.trim()];
@@ -118,8 +139,11 @@ export function RunForm({ onStarted }: { onStarted: (runId: string) => void }) {
     }
 
     const body: RunRequest = {
-      suite_path: suitePath,
+      suite_path: selectedSuite,
       timeout_seconds: seconds,
+      triage,
+      only_changed: onlyChanged,
+      ...(logPath.trim() ? { log_path: logPath.trim() } : {}),
       ...(mode === "single"
         ? { target_url: targets[0] }
         : {
@@ -148,9 +172,12 @@ export function RunForm({ onStarted }: { onStarted: (runId: string) => void }) {
     >
       <form className="st-run-form" onSubmit={(event) => void submit(event)}>
         <Field id="run-suite" label="Suite">
-          <select value={suitePath} onChange={(event) => setSuitePath(event.target.value)}>
-            {suiteItems.length === 0 && (
-              <option value="tests/spectest.yaml">tests/spectest.yaml</option>
+          <select
+            value={selectedSuite}
+            onChange={(event) => setSuitePath(event.target.value)}
+          >
+            {planPath && !suiteItems.some((item) => item.name === planPath) && (
+              <option value={planPath}>{planPath}</option>
             )}
             {suiteItems.map((item) => (
               <option key={item.path} value={item.name}>
@@ -230,6 +257,26 @@ export function RunForm({ onStarted }: { onStarted: (runId: string) => void }) {
             Kiểm tra máy chủ
           </Button>
         </div>
+
+        <div className="st-run-form__options">
+          <Checkbox checked={triage} onChange={(event) => setTriage(event.target.checked)}>
+            Chẩn đoán AI khi lỗi
+          </Checkbox>
+          <Checkbox
+            checked={onlyChanged}
+            onChange={(event) => setOnlyChanged(event.target.checked)}
+          >
+            Chỉ chạy thay đổi
+          </Checkbox>
+        </div>
+
+        <Field id="run-log-path" label="Tệp log lịch sử (tuỳ chọn)">
+          <input
+            value={logPath}
+            onChange={(event) => setLogPath(event.target.value)}
+            placeholder="tests/spectest.log.yaml"
+          />
+        </Field>
 
         {health && health.length > 0 && (
           <div className="st-run-form__health">

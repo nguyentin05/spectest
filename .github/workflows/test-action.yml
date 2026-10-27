@@ -1,0 +1,140 @@
+name: Test Setup Action
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'action.yml'
+      - '.github/workflows/test-action.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'action.yml'
+      - '.github/workflows/test-action.yml'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  test-matrix:
+    name: Test Action (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Test 1: Setup binary (latest)
+      - name: Setup binary (latest)
+        uses: ./
+
+      - name: Assert binary is executable in PATH
+        shell: bash
+        run: spectest --version
+
+      # Test 2: Setup with full Cloud LLM config (latest)
+      - name: Setup with full Cloud LLM config (latest)
+        uses: ./
+        with:
+          version: "latest"
+          provider: "openai"
+          api_key: "sk-mock-secret-key-12345"
+          model: "gpt-4o-mini"
+          endpoint: "https://api.openai.com/v1"
+
+      - name: Assert LLM env vars & credentials.yaml
+        shell: bash
+        run: |
+          test "$SPECTEST_PROVIDER" = "openai"
+          test "$SPECTEST_MODEL" = "gpt-4o-mini"
+          test "$SPECTEST_ENDPOINT" = "https://api.openai.com/v1"
+          spectest config list
+
+      # Test 3: Incomplete LLM fields
+      - name: Incomplete LLM fields
+        id: test_missing_llm
+        continue-on-error: true
+        uses: ./
+        with:
+          version: "latest"
+          provider: "openai"
+          model: "gpt-4o-mini"
+
+      - name: Assert Step 3 failed as expected
+        shell: bash
+        run: |
+          if [ "${{ steps.test_missing_llm.outcome }}" != "failure" ]; then
+            echo "::error::Action should have failed when LLM fields are missing!"
+            exit 1
+          fi
+
+      # Test 4: Invalid version format
+      - name: Invalid version format
+        id: test_invalid_ver
+        continue-on-error: true
+        uses: ./
+        with:
+          version: "invalid/path;injection"
+
+      - name: Assert Step 4 failed as expected
+        shell: bash
+        run: |
+          if [ "${{ steps.test_invalid_ver.outcome }}" != "failure" ]; then
+            echo "::error::Action should have failed on invalid version format!"
+            exit 1
+          fi
+
+  test-sarif-upload:
+    name: Test SARIF Generation & Upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SpecTest CLI
+        uses: ./
+        with:
+          version: "latest"
+
+      - name: Create sample test suite
+        shell: bash
+        run: |
+          cat <<EOF > sample-spec.yaml
+          version: 1
+          input: openapi
+          servers:
+            - main
+          apis:
+            - "GET {main}/nonexistent-path"
+          scenarios:
+            - id: probe-scenario
+              name: Probe Scenario
+              steps:
+                - call: "GET {main}/nonexistent-path"
+                  expect: 200
+          EOF
+
+      - name: Run SpecTest against public endpoint and generate SARIF
+        shell: bash
+        run: |
+          mkdir -p reports
+          # Run against example.com (returns 404 for nonexistent path -> generates SARIF assertion failure)
+          spectest run -f sample-spec.yaml -t main=https://example.com --sarif reports/spectest.sarif || true
+
+      - name: Verify SARIF content
+        shell: bash
+        run: |
+          test -f reports/spectest.sarif
+          grep -q '"version": "2.1.0"' reports/spectest.sarif
+          grep -q 'SPECTEST-001' reports/spectest.sarif
+          cat reports/spectest.sarif
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/spectest.sarif
+          category: spectest-ci-test

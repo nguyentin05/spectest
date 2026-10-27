@@ -267,10 +267,11 @@ func (g *Generator) executeUpdate(ctx context.Context, req Request) (*Result, er
 
 	// Validate updated suite
 	validationOpt := validationOptions{
-		RequireAnalysis:  false,
-		RequiredCoverage: nil,
-		AllowStaleAPIs:   true, // tool-skipped scenarios are allowed to hold stale APIs
-		WarnUncovered:    false,
+		RequireAnalysis:       false,
+		RequiredCoverage:      nil,
+		AllowStaleAPIs:        true, // tool-skipped scenarios are allowed to hold stale APIs
+		WarnUncovered:         false,
+		AllowInferredStatuses: true,
 	}
 	vr := validateSuite(updatedSuite, src, validationOpt)
 	if err := vr.Err(); err != nil {

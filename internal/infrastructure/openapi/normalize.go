@@ -1,6 +1,7 @@
 package openapi
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 
@@ -20,6 +21,7 @@ type normalizedOperation struct {
 	Request     *domain.RequestSpec
 	Responses   map[string]domain.Schema
 	Security    []securityRequirement
+	RawSnippet  string
 }
 
 // Normalize parses an OpenAPI 3.x document and returns its operations sorted by
@@ -47,6 +49,7 @@ func Normalize(server string, raw []byte) ([]domain.API, error) {
 			Parameters:  operation.Parameters,
 			Request:     operation.Request,
 			Responses:   operation.Responses,
+			RawSnippet:  operation.RawSnippet,
 		})
 	}
 	return apis, nil
@@ -130,7 +133,102 @@ func buildOperation(path, method string, pathParameters []*parameter, operation 
 		Request:     buildRequest(operation.RequestBody),
 		Responses:   buildResponses(operation.Responses),
 		Security:    effectiveSecurity(operation.Security, globalSecurity),
+		RawSnippet:  buildRawSnippet(path, method, pathParameters, operation),
 	}
+}
+
+func buildRawSnippet(path, method string, pathParameters []*parameter, op *operation) string {
+	type paramSnippet struct {
+		Name     string `json:"name"`
+		In       string `json:"in"`
+		Required bool   `json:"required,omitempty"`
+		Schema   any    `json:"schema,omitempty"`
+	}
+
+	mergedParams := make([]paramSnippet, 0)
+	paramMap := make(map[string]paramSnippet)
+
+	for _, p := range pathParameters {
+		if p == nil {
+			continue
+		}
+		var s any
+		_ = p.Schema.Decode(&s)
+		paramMap[p.In+":"+p.Name] = paramSnippet{Name: p.Name, In: p.In, Required: p.Required, Schema: s}
+	}
+
+	if op != nil {
+		for _, p := range op.Parameters {
+			if p == nil {
+				continue
+			}
+			var s any
+			_ = p.Schema.Decode(&s)
+			paramMap[p.In+":"+p.Name] = paramSnippet{Name: p.Name, In: p.In, Required: p.Required, Schema: s}
+		}
+	}
+
+	for _, p := range paramMap {
+		mergedParams = append(mergedParams, p)
+	}
+	sort.Slice(mergedParams, func(i, j int) bool {
+		return mergedParams[i].Name < mergedParams[j].Name
+	})
+
+	var reqBody any
+	if op != nil && op.RequestBody != nil {
+		contentMap := make(map[string]any)
+		for mtName, mt := range op.RequestBody.Content {
+			if mt == nil {
+				continue
+			}
+			var s any
+			_ = mt.Schema.Decode(&s)
+			contentMap[mtName] = map[string]any{"schema": s}
+		}
+		reqBody = map[string]any{
+			"required": op.RequestBody.Required,
+			"content":  contentMap,
+		}
+	}
+
+	resps := make(map[string]any)
+	if op != nil {
+		for status, r := range op.Responses {
+			if r == nil {
+				continue
+			}
+			cMap := make(map[string]any)
+			for mtName, mt := range r.Content {
+				if mt == nil {
+					continue
+				}
+				var s any
+				_ = mt.Schema.Decode(&s)
+				cMap[mtName] = map[string]any{"schema": s}
+			}
+			resps[status] = map[string]any{"content": cMap}
+		}
+	}
+
+	snippet := map[string]any{
+		"method":     method,
+		"path":       path,
+		"parameters": mergedParams,
+		"responses":  resps,
+	}
+	if reqBody != nil {
+		snippet["request_body"] = reqBody
+	}
+	if op != nil && op.Summary != "" {
+		snippet["summary"] = op.Summary
+	}
+
+	data, err := json.Marshal(snippet)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // operationDescription prefers summary and falls back to description. Text is

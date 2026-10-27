@@ -272,8 +272,9 @@ func TestServer_SpecsAndPlan(t *testing.T) {
 
 	var histData map[string]any
 	_ = json.Unmarshal(histRec.Body.Bytes(), &histData)
-	if histData["base"] == nil {
-		t.Error("expected non-nil base in history response")
+	baseMap, ok := histData["base"].(map[string]any)
+	if !ok || baseMap["spectest_summary"] == nil {
+		t.Error("expected non-nil spectest_summary in history base response")
 	}
 
 	// 3. Workspace list
@@ -283,6 +284,19 @@ func TestServer_SpecsAndPlan(t *testing.T) {
 
 	if wsRec.Code != http.StatusOK {
 		t.Fatalf("workspace status = %d, want 200", wsRec.Code)
+	}
+
+	var wsData workspaceResponse
+	_ = json.Unmarshal(wsRec.Body.Bytes(), &wsData)
+	foundHistory := false
+	for _, it := range wsData.Items {
+		if it.Type == "history" {
+			foundHistory = true
+			break
+		}
+	}
+	if !foundHistory {
+		t.Error("expected spectest.log.yaml to be categorized as 'history' in workspace items")
 	}
 
 	// 4. Upload raw spec

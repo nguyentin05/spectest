@@ -1,10 +1,15 @@
 import { withQuery } from "../lib/url";
 import { apiRequest, apiRequestForm } from "./client";
 import {
+  toHistoryResponse,
   toLLMConfig,
   toMarkdownResponse,
+  toPlanResponse,
+  toWorkspaceResponse,
   type RawConfig,
+  type RawHistory,
   type RawMarkdown,
+  type RawPlan,
 } from "./contracts";
 import type {
   ActionResponse,
@@ -17,9 +22,7 @@ import type {
   HealthResponse,
   HealthcheckRequest,
   HealthcheckResponse,
-  HistoryResponse,
   LogsResponse,
-  PlanResponse,
   RunReport,
   RunRequest,
   RunStartResponse,
@@ -44,7 +47,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  workspace: () => apiRequest<WorkspaceResponse>("/specs/workspace"),
+  workspace: () => apiRequest<WorkspaceResponse>("/specs/workspace").then(toWorkspaceResponse),
   uploadFile: (file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -55,9 +58,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  plan: (path?: string) => apiRequest<PlanResponse>(withQuery("/specs/plan", { path })),
+  plan: (path?: string) =>
+    apiRequest<RawPlan>(withQuery("/specs/plan", { path })).then(toPlanResponse),
   history: (path?: string) =>
-    apiRequest<HistoryResponse>(withQuery("/specs/history", { path })),
+    apiRequest<RawHistory>(withQuery("/specs/history", { path })).then(toHistoryResponse),
   generate: (body: GenerateRequest) =>
     apiRequest<GenerateResponse | GeneratePendingResponse>("/generate", {
       method: "POST",

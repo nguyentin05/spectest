@@ -22,7 +22,7 @@ function ScenarioList({ plan }: { plan: PlanResponse }) {
   const [lockedOnly, setLockedOnly] = useState(false);
   const query = useDebouncedValue(search.trim().toLowerCase());
 
-  const scenarios = plan.scenarios.filter((scenario) => {
+  const scenarios = (plan.scenarios ?? []).filter((scenario) => {
     if (lockedOnly && !scenario.locked) return false;
     if (!query) return true;
     return (
@@ -62,7 +62,7 @@ function ScenarioList({ plan }: { plan: PlanResponse }) {
 }
 
 function SuiteContent({ plan }: { plan: PlanResponse }) {
-  const setupEntries = Object.entries(plan.setup);
+  const setupEntries = Object.entries(plan.setup ?? {});
 
   return (
     <>

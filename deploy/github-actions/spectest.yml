@@ -1,0 +1,37 @@
+name: Setup SpecTest CLI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  setup-spectest:
+    name: Setup SpecTest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup SpecTest CLI
+        uses: nguyentin05/spectest@v1
+        with:
+          version: "latest"
+          # Optional LLM configuration for AI generation / triage:
+          # provider: "gemini"
+          # api_key: ${{ secrets.GEMINI_API_KEY }}
+          # model: "gemini-2.5-pro"
+          # endpoint: "https://generativelanguage.googleapis.com/v1beta"
+
+      - name: Verify Installation
+        run: spectest --version
+
+      # Next steps: Add your test execution or generation commands here
+      # Examples:
+      #   - run: spectest run -f spectest.yaml -t http://localhost:8080
+      #   - run: spectest generate --mode init -a openapi.yaml -o tests

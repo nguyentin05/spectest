@@ -1,10 +1,5 @@
-import type { RawConfig } from "../api/contracts";
-import type {
-  HealthResponse,
-  HistoryResponse,
-  PlanResponse,
-  WorkspaceItem,
-} from "../api/types";
+import type { RawConfig, RawHistory } from "../api/contracts";
+import type { HealthResponse, PlanResponse, WorkspaceItem } from "../api/types";
 
 export const workspaceDir = "/home/tin/Project/current/spectest";
 
@@ -54,7 +49,7 @@ export function createWorkspaceFixture(): WorkspaceItem[] {
     {
       name: "tests/spectest.log.yaml",
       path: `${workspaceDir}/tests/spectest.log.yaml`,
-      type: "history",
+      type: "other",
       size: 14210,
     },
   ];
@@ -180,16 +175,22 @@ export function createPlanFixture(): PlanResponse {
   };
 }
 
-export function createHistoryFixture(): HistoryResponse {
+export function createHistoryFixture(): RawHistory {
   return {
+    path: "tests/spectest.log.yaml",
     base: {
       at: "2026-10-20T09:00:00+07:00",
       by: "ai",
       after_hash: "5c1d02a9b7e4",
-      spectest_summary: {
+      spectest: {
         servers: ["auth", "order"],
-        apis_count: 4,
-        scenarios_count: 2,
+        apis: [
+          "POST {auth}/api/register",
+          "POST {auth}/api/login",
+          "POST {order}/api/orders",
+          "GET {order}/api/orders/{id}",
+        ],
+        scenarios: [{ id: "order-over-stock", name: "Đặt hàng vượt tồn kho" }, { id: "login-fail", name: "Login sai password" }],
       },
     },
     updates: [
@@ -203,6 +204,7 @@ export function createHistoryFixture(): HistoryResponse {
             added: ["POST {order}/api/orders/{id}/cancel"],
             changed: ["POST {auth}/api/register"],
             removed: [],
+            restored: ["GET {auth}/api/v1/me"],
           },
           requirements: {
             before_hash: "a1b2c3d4e5f6",
@@ -210,8 +212,9 @@ export function createHistoryFixture(): HistoryResponse {
           },
         },
         create: {
-          setup_added: ["order"],
-          scenarios_added: ["order-cancel-pending"],
+          seed: { admin: { vars: { admin_email: "admin@shop.com" } } },
+          setup: { guest_session: { use: ["login"], steps: [] } },
+          scenarios: [{ id: "order-cancel-pending", name: "Hủy đơn đang chờ" }],
         },
         change: [
           {

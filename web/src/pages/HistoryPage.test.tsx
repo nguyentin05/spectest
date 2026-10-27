@@ -12,6 +12,47 @@ it("renders an update with its trigger and before/after change", async () => {
   expect(screen.getByText("POST {auth}/api/register")).toBeInTheDocument();
   expect(screen.getByText("0912345678")).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Lần cập nhật #1" })).toBeInTheDocument();
+  expect(screen.getByText("guest_session")).toBeInTheDocument();
+  expect(screen.getByText("order-cancel-pending")).toBeInTheDocument();
+  expect(screen.getByText("Seed mới")).toBeInTheDocument();
+  expect(screen.getByText("admin")).toBeInTheDocument();
+  expect(screen.getByText("Khôi phục")).toBeInTheDocument();
+  expect(screen.getByText("GET {auth}/api/v1/me")).toBeInTheDocument();
+});
+
+it("renders a log that has no updates yet", async () => {
+  server.use(
+    http.get("/api/specs/history", () =>
+      HttpResponse.json({
+        path: "tests/spectest.log.yaml",
+        base: {
+          at: "2026-10-26T19:31:42+07:00",
+          by: "ai",
+          after_hash: "7ae58395aa4d",
+          spectest: {
+            version: 1,
+            servers: ["auth"],
+            apis: [
+              "GET {auth}/api/v1/me",
+              "GET {auth}/health",
+              "POST {auth}/api/v1/login",
+              "POST {auth}/api/v1/register",
+            ],
+            scenarios: [{ id: "health-check" }, { id: "login-success" }],
+          },
+        },
+        updates: null,
+      }),
+    ),
+  );
+
+  renderAt("/history");
+
+  expect(await screen.findByText("Điểm xuất phát")).toBeInTheDocument();
+  expect(screen.getByText("auth")).toBeInTheDocument();
+  expect(screen.getByText("4 API")).toBeInTheDocument();
+  expect(screen.getByText("2 kịch bản")).toBeInTheDocument();
+  expect(screen.getByText("Chưa có cập nhật nào.")).toBeInTheDocument();
 });
 
 it("shows an empty state when the log file is missing", async () => {

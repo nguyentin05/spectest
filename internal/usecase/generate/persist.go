@@ -2,7 +2,6 @@ package generate
 
 import (
 	"context"
-	"maps"
 	"path/filepath"
 	"strings"
 	"time"
@@ -42,51 +41,6 @@ func (g *Generator) buildBaseEntry(src *domain.SourceSet, s *domain.Suite) domai
 	}
 }
 
-// buildTrack constructs spectest.track.yaml.
-//
-// Initial run (old == nil): every current API is "active", last_update = 0.
-// Update run (old != nil): removed entries from old are preserved forever;
-// current APIs are refreshed; source fingerprints are reset.
-// mentions are stored only when requirements exist (input both).
-func buildTrack(
-	src *domain.SourceSet, old *domain.TrackFile, lastUpdate int, mentions []domain.APIMention,
-) *domain.TrackFile {
-	apis := make(map[string]domain.APIState, len(src.APIs))
-
-	if old != nil {
-		maps.Copy(apis, old.APIs)
-	}
-
-	present := make(map[string]struct{}, len(src.APIs))
-	for _, a := range src.APIs {
-		present[a.Key] = struct{}{}
-		apis[a.Key] = domain.APIState{Status: "active", Hash: a.Hash, Sig: a.Sig}
-	}
-	for k, v := range apis {
-		if _, ok := present[k]; !ok && v.Status == "active" {
-			v.Status = "removed"
-			apis[k] = v
-		}
-	}
-
-	sources := domain.Sources{OpenAPI: src.OpenAPI}
-	if src.Requirements != nil {
-		sources.Requirements = &domain.RequirementState{
-			File:        src.Requirements.File,
-			Raw:         src.Requirements.Raw,
-			Hash:        requirementsHash(src.Requirements.Raw),
-			APIMentions: mentions,
-		}
-	}
-
-	return &domain.TrackFile{
-		LastUpdate: lastUpdate,
-		Input:      src.Input,
-		Sources:    sources,
-		APIs:       apis,
-	}
-}
-
 // persist delegates to store.Save. On dry-run it returns immediately without
 // touching the filesystem (no directory, no marker, no file).
 func (g *Generator) persist(
@@ -110,7 +64,7 @@ func joinDisplayPath(dir, name string) string {
 
 // buildInitialFileSet assembles the files for a first run.
 func (g *Generator) buildInitialFileSet(
-	src *domain.SourceSet, suite *domain.Suite, mentions []domain.APIMention,
+	src *domain.SourceSet, suite *domain.Suite,
 ) *domain.FileSet {
 	normalized := normalizeSuite(suite)
 	return &domain.FileSet{
@@ -119,6 +73,5 @@ func (g *Generator) buildInitialFileSet(
 			Base:   g.buildBaseEntry(src, normalized),
 			Update: []domain.UpdateEntry{},
 		},
-		Track: buildTrack(src, nil, 0, mentions),
 	}
 }
