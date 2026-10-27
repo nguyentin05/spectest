@@ -27,6 +27,7 @@ type options struct {
 	composeFile string
 	timeoutSec  int
 	reportDir   string
+	sarifFile   string
 	triage      bool
 	onlyChanged bool
 	logPath     string
@@ -63,6 +64,7 @@ automatically trigger AI defect triage when test cases fail.`,
 	cmd.Flags().StringVarP(&opts.composeFile, "compose", "c", "", "Path to Docker Compose file (auto boots DB/Redis/App, runs, tears down)")
 	cmd.Flags().IntVar(&opts.timeoutSec, "timeout", opts.timeoutSec, "Server readiness timeout in seconds")
 	cmd.Flags().StringVar(&opts.reportDir, "report-dir", opts.reportDir, "Directory to output test reports")
+	cmd.Flags().StringVar(&opts.sarifFile, "sarif", "", "Path to output SARIF 2.1.0 report for GitHub Code Scanning")
 	cmd.Flags().BoolVar(&opts.triage, "triage", false, "Enable AI defect triage on step failure (requires configured LLM)")
 	cmd.Flags().BoolVar(&opts.onlyChanged, "only-changed", false, "Run scenarios affected by the latest history update")
 	cmd.Flags().StringVar(&opts.logPath, "log", "", "Path to spectest.log.yaml; defaults beside --file")
@@ -170,6 +172,23 @@ func runSuite(ctx context.Context, out io.Writer, f *cmdutil.Factory, opts *opti
 	if opts.reportDir != "" && summary != nil {
 		if writeErr := writeReport(opts.reportDir, summary); writeErr != nil {
 			return fmt.Errorf("failed to write test report: %w", writeErr)
+		}
+	}
+
+	// Write SARIF report if specified
+	if opts.sarifFile != "" && summary != nil {
+		sarifBytes, sarifErr := buildSARIF(summary, opts.suitePath)
+		if sarifErr != nil {
+			return fmt.Errorf("failed to build sarif report: %w", sarifErr)
+		}
+		dir := filepath.Dir(opts.sarifFile)
+		if dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return fmt.Errorf("create sarif directory %q: %w", dir, err)
+			}
+		}
+		if writeErr := atomicfile.Write(opts.sarifFile, sarifBytes, 0o600); writeErr != nil {
+			return fmt.Errorf("failed to write sarif report: %w", writeErr)
 		}
 	}
 

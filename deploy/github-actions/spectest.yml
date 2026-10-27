@@ -1,0 +1,53 @@
+name: API Contract & Regression Testing
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write # Required to upload SARIF report to GitHub Code Scanning (note: fork PRs cannot write security-events)
+
+jobs:
+  spectest:
+    name: Run SpecTest Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Start Application Services
+        run: docker compose up -d --wait
+
+      - name: Setup SpecTest & Configure LLM
+        uses: nguyentin05/spectest@v1
+        with:
+          version: "latest"
+          provider: "gemini"
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          model: "gemini-2.5-pro"
+          endpoint: "https://generativelanguage.googleapis.com/v1beta"
+
+      - name: Run SpecTest Suite
+        run: |
+          mkdir -p reports
+          spectest run \
+            -f tests/spectest.yaml \
+            -t http://127.0.0.1:8080 \
+            --report-dir reports \
+            --sarif reports/spectest.sarif
+
+      - name: Publish Test Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spectest-reports
+          path: reports/
+
+      - name: Upload SARIF to GitHub Security Alerts
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/spectest.sarif

@@ -1,21 +1,25 @@
 # GitHub Actions Integration
 
-SpecTest provides a native **Composite GitHub Action** (`action.yml`) that runs in GitHub Actions workflows on Linux and macOS runners (`amd64` and `arm64`).
+SpecTest provides a native **Setup Composite Action** (`action.yml`) that downloads, verifies checksums, caches, installs the `spectest` CLI binary into `PATH`, and sets up LLM credentials across Linux, macOS, and Windows runners (`amd64` and `arm64`).
 
 ---
 
-## Example Workflow
+## Example 1: Run Test Suite & Upload SARIF to GitHub Code Scanning
 
 Create `.github/workflows/api-tests.yml`:
 
 ```yaml
-name: API Regression & Contract Quality Gate
+name: API Regression & Quality Gate
 
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
+  security-events: write # Required for Code Scanning SARIF upload
 
 jobs:
   spectest:
@@ -25,70 +29,96 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Execute SpecTest API Suite
+      - name: Setup SpecTest-AI & Configure LLM
         uses: nguyentin05/spectest@v1
         with:
-          test_file: "tests/spectest.yaml"
-          target_url: "http://localhost:8080"
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          report_dir: "reports"
+          version: "latest"
+          provider: "gemini"
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          model: "gemini-2.5-pro"
+          endpoint: "https://generativelanguage.googleapis.com/v1beta"
 
-      - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v2
+      - name: Execute SpecTest Suite
+        run: |
+          mkdir -p reports
+          spectest run \
+            -f tests/spectest.yaml \
+            -t http://localhost:8080 \
+            --report-dir reports \
+            --sarif reports/spectest.sarif
+
+      - name: Upload Test Reports
         if: always()
-        with:
-          files: "reports/junit.xml"
-
-      - name: Upload HTML Test Report
         uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: spectest-report
+          name: spectest-reports
           path: reports/
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/spectest.sarif
 ```
 
 ---
 
-## Action Inputs Reference
+## Example 2: AI Auto-Update Test Suite on OpenAPI Changes
+
+SpecTest can automatically sync test scenarios with OpenAPI spec changes in Pull Requests:
+
+```yaml
+name: Auto-Sync Test Suite
+
+on:
+  pull_request:
+    paths:
+      - 'openapi/**'
+
+jobs:
+  update-suite:
+    name: Update Tests from OpenAPI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Setup SpecTest-AI & Configure LLM
+        uses: nguyentin05/spectest@v1
+        with:
+          provider: "openai"
+          api_key: ${{ secrets.OPENAI_API_KEY }}
+          model: "gpt-4o-mini"
+          endpoint: "https://api.openai.com/v1"
+
+      - name: Generate updated scenarios
+        run: |
+          spectest generate -f tests/spectest.yaml -a openapi/api.yaml
+
+      - name: Commit updated tests back to PR
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(test): auto-update spectest.yaml from OpenAPI spec changes"
+          file_pattern: "tests/spectest.yaml tests/spectest.log.yaml"
+```
+
+---
+
+## Action Reference
+
+### Inputs
 
 | Input | Required | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `version` | No | `"latest"` | SpecTest binary version to install (e.g. `'v1.0.0'` or `'latest'`). |
-| `test_file` | No | `"tests/spectest.yaml"` | Path to the test suite YAML file in your repository. |
-| `target_url` | No | `""` | Target API base URL. Overrides default target. |
-| `compose_file` | No | `""` | Path to `docker-compose.yml` to automatically start/stop backend services. |
-| `gemini_api_key`| No | `""` | Google Gemini API key for automated defect triage on failed assertions. |
-| `openai_api_key`| No | `""` | OpenAI API key alternative. |
-| `report_dir` | No | `"reports"` | Output directory where `junit.xml` and `report.html` are generated. |
+| `version` | No | `"latest"` | SpecTest binary version to install (e.g. `'v0.2.0'` or `'latest'`). |
+| `provider` | No | `""` | LLM provider for AI generation and defect triage (`gemini`, `openai`, `anthropic`, `ollama`). |
+| `api_key` | No | `""` | LLM API key. Pass via `secrets.*` (automatically masked in CI logs). |
+| `model` | No | `""` | Default model name (e.g. `'gpt-4o-mini'`, `'gemini-2.5-pro'`, `'qwen2.5-coder:7b'`). |
+| `endpoint` | No | `""` | Custom LLM base endpoint URL (e.g. `'http://localhost:11434'` for Ollama). |
 
----
-
-## Action Outputs Reference
+### Outputs
 
 | Output | Description |
 | :--- | :--- |
-| `junit_report` | Path to the generated JUnit XML file (`reports/junit.xml`). |
-| `html_report` | Path to the generated HTML report file (`reports/report.html`). |
-| `test_status` | Final execution status: `'success'` or `'failure'`. |
-
----
-
-## Multi-Container CI Testing with Docker Compose
-
-If your API backend requires backing databases (Postgres, MongoDB, Redis) and application containers:
-
-```yaml
-      - name: Run SpecTest with Auto Docker Lifecycle
-        uses: nguyentin05/spectest@v1
-        with:
-          test_file: "tests/spectest.yaml"
-          compose_file: "docker-compose.test.yml"
-          target_url: "http://localhost:8080"
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-```
-
-SpecTest automatically handles:
-1. Booting all containers with `docker compose up -d`.
-2. Probing until target endpoints are healthy.
-3. Executing tests, evaluating assertions, and triaging failures with AI.
-4. Guaranteed cleanup (`docker compose down -v`) upon workflow finish or cancellation.
+| `version` | The resolved semver version of SpecTest that was installed (e.g. `'v0.2.0'`). |
+| `spectest_path` | Absolute path to the directory containing the cached executable binary. |

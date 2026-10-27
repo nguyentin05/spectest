@@ -1,135 +1,220 @@
-name: "SpecTest-AI Automated API Testing Action"
-description: "Run automated API contract, business logic, and security regression tests with SpecTest-AI"
-author: "Nguyen Trong Tin & SpecTest-AI Team"
+name: "Setup SpecTest"
+description: "Download, verify, and cache SpecTest CLI binary, add it to PATH, and configure LLM credentials"
+author: "Nguyen Trong Tin & SpecTest Team"
 branding:
   icon: "check-circle"
   color: "blue"
 
 inputs:
   version:
-    description: "SpecTest-AI version to use (e.g. 'v1.0.0' or 'latest')"
+    description: "SpecTest version (e.g. 'v0.2.0' or 'latest')."
     required: false
     default: "latest"
-  test_file:
-    description: "Path to spectest.yaml scenario file"
-    required: false
-    default: "tests/spectest.yaml"
-  target_url:
-    description: "Target API base URL (overrides target_base_url in spectest.yaml)"
+  provider:
+    description: "Cloud LLM provider (gemini, openai, anthropic). Required if configuring LLM."
     required: false
     default: ""
-  compose_file:
-    description: "Path to docker-compose.yml for automated service lifecycle"
+  api_key:
+    description: "Cloud LLM API key. Pass via secrets.*. Required if configuring LLM."
     required: false
     default: ""
-  gemini_api_key:
-    description: "Google Gemini API key for AI Defect Triage & smart generation"
+  model:
+    description: "Cloud LLM model name (e.g. 'gpt-4o-mini', 'gemini-2.5-pro'). Required if configuring LLM."
     required: false
     default: ""
-  openai_api_key:
-    description: "OpenAI or OpenAI-compatible API key"
+  endpoint:
+    description: "Cloud LLM endpoint URL (e.g. 'https://api.openai.com/v1'). Required if configuring LLM."
     required: false
     default: ""
-  report_dir:
-    description: "Directory to save test reports"
-    required: false
-    default: "reports"
 
 outputs:
-  junit_report:
-    description: "Path to generated JUnit XML report file"
-    value: "${{ steps.run-test.outputs.junit_report }}"
-  html_report:
-    description: "Path to generated HTML dashboard report file"
-    value: "${{ steps.run-test.outputs.html_report }}"
-  test_status:
-    description: "Exit status of the test execution (success or failure)"
-    value: "${{ steps.run-test.outputs.test_status }}"
+  version:
+    description: "Resolved SpecTest version that was installed"
+    value: ${{ steps.setup.outputs.version }}
+  spectest_path:
+    description: "Path to the installed spectest binary directory"
+    value: ${{ steps.setup.outputs.spectest_path }}
 
 runs:
   using: "composite"
   steps:
-    - name: Set up SpecTest-AI Binary
+    - name: Set up SpecTest and LLM configuration
+      id: setup
       shell: bash
+      env:
+        IN_VERSION: ${{ inputs.version }}
+        IN_PROVIDER: ${{ inputs.provider }}
+        IN_API_KEY: ${{ inputs.api_key }}
+        IN_MODEL: ${{ inputs.model }}
+        IN_ENDPOINT: ${{ inputs.endpoint }}
       run: |
         set -euo pipefail
 
-        OS="$(echo "${RUNNER_OS:-linux}" | tr '[:upper:]' '[:lower:]')"
-        ARCH="$(echo "${RUNNER_ARCH:-x64}" | tr '[:upper:]' '[:lower:]')"
+        REPO="nguyentin05/spectest"
 
-        case "$ARCH" in
-          x64|amd64) ARCH="amd64" ;;
-          arm64|aarch64) ARCH="arm64" ;;
-          *) echo "Unsupported runner architecture: $ARCH" && exit 1 ;;
+        # --- Validate version input (prevents URL/path injection) ---
+        if ! [[ "$IN_VERSION" =~ ^(latest|v?[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?)$ ]]; then
+          echo "::error::Invalid 'version' input: '$IN_VERSION'. Use 'latest' or a semver like 'v0.2.0'."
+          exit 1
+        fi
+
+        # --- Detect platform (Linux, macOS, and Windows supported) ---
+        case "$RUNNER_OS" in
+          Linux)   OS="linux" ;;
+          macOS)   OS="darwin" ;;
+          Windows) OS="windows" ;;
+          *) echo "::error::Unsupported runner OS: $RUNNER_OS" && exit 1 ;;
         esac
 
-        VERSION="${{ inputs.version }}"
-        if [ "$VERSION" = "latest" ] || [ -z "$VERSION" ]; then
-          VERSION="$(curl -sSL -H "Accept: application/vnd.github+json" https://api.github.com/repos/nguyentin05/spectest/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "v1.0.0")"
-        fi
+        case "$RUNNER_ARCH" in
+          X64|x64|amd64) ARCH="amd64" ;;
+          ARM64|arm64|aarch64) ARCH="arm64" ;;
+          *) echo "::error::Unsupported runner architecture: $RUNNER_ARCH" && exit 1 ;;
+        esac
 
-        echo "Installing SpecTest-AI $VERSION for $OS/$ARCH..."
-        INSTALL_DIR="$RUNNER_TEMP/spectest-bin"
-        mkdir -p "$INSTALL_DIR"
-
-        ARCHIVE_NAME="spectest_${VERSION#v}_${OS}_${ARCH}.tar.gz"
-        DOWNLOAD_URL="https://github.com/nguyentin05/spectest/releases/download/${VERSION}/${ARCHIVE_NAME}"
-        CHECKSUM_URL="https://github.com/nguyentin05/spectest/releases/download/${VERSION}/checksums.txt"
-
-        curl -sSL -o "$INSTALL_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL" || {
-          echo "Warning: Release asset not found online, attempting local build if Go is available..."
-          if command -v go >/dev/null 2>&1; then
-            go build -o "$INSTALL_DIR/spectest" ./cmd/spectest
-          else
-            echo "Error: Neither prebuilt binary nor Go compiler found."
+        # --- Resolve version (redirect-based with retry, zero API rate limits) ---
+        VERSION="$IN_VERSION"
+        if [ "$VERSION" = "latest" ]; then
+          if ! final_url="$(curl -fsSLI --retry 3 -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest")"; then
+            echo "::error::Failed to resolve latest release from https://github.com/${REPO}/releases/latest"
             exit 1
           fi
-        }
-
-        if [ -f "$INSTALL_DIR/$ARCHIVE_NAME" ]; then
-          curl -sSL -o "$INSTALL_DIR/checksums.txt" "$CHECKSUM_URL" || true
-          if [ -f "$INSTALL_DIR/checksums.txt" ] && grep -q "$ARCHIVE_NAME" "$INSTALL_DIR/checksums.txt"; then
-            echo "Verifying SHA-256 checksum..."
-            (cd "$INSTALL_DIR" && grep "$ARCHIVE_NAME" checksums.txt | sha256sum --check)
+          VERSION="${final_url##*/}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
+            echo "::error::Could not resolve latest release tag of ${REPO}."
+            exit 1
           fi
-          tar -xzf "$INSTALL_DIR/$ARCHIVE_NAME" -C "$INSTALL_DIR" spectest || true
+          if ! [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Resolved latest tag '$VERSION' is not a valid semver release (repository may have no releases yet)."
+            exit 1
+          fi
+        fi
+        [[ "$VERSION" == v* ]] || VERSION="v${VERSION}"
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+        # --- Tool cache check ---
+        CACHE_ROOT="${RUNNER_TOOL_CACHE:-${RUNNER_TEMP:-/tmp}/tool_cache}"
+        CACHE_DIR="${CACHE_ROOT}/spectest/${VERSION}/${OS}-${ARCH}"
+        EXEC_NAME="spectest"
+        if [ "$OS" = "windows" ]; then
+          EXEC_NAME="spectest.exe"
         fi
 
-        chmod +x "$INSTALL_DIR/spectest"
-        echo "$INSTALL_DIR" >> "$GITHUB_PATH"
-        echo "SpecTest-AI installed successfully."
-
-    - name: Execute SpecTest-AI Test Suite
-      id: run-test
-      shell: bash
-      env:
-        GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
-        SPECTEST_API_KEY: ${{ inputs.openai_api_key }}
-      run: |
-        CMD="spectest run -f '${{ inputs.test_file }}'"
-
-        if [ -n "${{ inputs.target_url }}" ]; then
-          CMD="$CMD -t '${{ inputs.target_url }}'"
+        INSTALLED=false
+        if [ -f "${CACHE_DIR}/${EXEC_NAME}" ] && "${CACHE_DIR}/${EXEC_NAME}" --version >/dev/null 2>&1; then
+          echo "Using cached SpecTest ${VERSION}"
+          TARGET_PATH="${CACHE_DIR}"
+          if [ "$OS" = "windows" ] && command -v cygpath >/dev/null 2>&1; then
+            TARGET_PATH="$(cygpath -w "${CACHE_DIR}")"
+          fi
+          echo "${TARGET_PATH}" >> "$GITHUB_PATH"
+          echo "spectest_path=${TARGET_PATH}" >> "$GITHUB_OUTPUT"
+          INSTALLED=true
         fi
 
-        if [ -n "${{ inputs.compose_file }}" ]; then
-          CMD="$CMD --compose '${{ inputs.compose_file }}'"
+        # --- Download & Extract if not cached ---
+        if [ "$INSTALLED" != "true" ]; then
+          echo "Installing SpecTest ${VERSION} for ${OS}/${ARCH}..."
+          TMP_DIR="$(mktemp -d)"
+          trap 'rm -rf "$TMP_DIR"' EXIT
+
+          EXT="tar.gz"
+          if [ "$OS" = "windows" ]; then
+            EXT="zip"
+          fi
+          ARCHIVE="spectest_${VERSION#v}_${OS}_${ARCH}.${EXT}"
+          BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
+
+          curl -fsSL --retry 3 -o "${TMP_DIR}/${ARCHIVE}" "${BASE_URL}/${ARCHIVE}" \
+            || { echo "::error::Failed to download ${BASE_URL}/${ARCHIVE}"; exit 1; }
+          curl -fsSL --retry 3 -o "${TMP_DIR}/checksums.txt" "${BASE_URL}/checksums.txt" \
+            || { echo "::error::Failed to download checksums.txt for ${VERSION}"; exit 1; }
+
+          # --- Mandatory SHA-256 verification ---
+          expected="$(awk -v f="$ARCHIVE" '$2 == f {print $1}' "${TMP_DIR}/checksums.txt")"
+          if [ -z "$expected" ]; then
+            echo "::error::${ARCHIVE} not listed in checksums.txt"
+            exit 1
+          fi
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual="$(sha256sum "${TMP_DIR}/${ARCHIVE}" | awk '{print $1}')"
+          else
+            actual="$(shasum -a 256 "${TMP_DIR}/${ARCHIVE}" | awk '{print $1}')"
+          fi
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::Checksum mismatch for ${ARCHIVE} (expected ${expected}, got ${actual})"
+            exit 1
+          fi
+          echo "Checksum verified."
+
+          # --- Atomic extraction into cache ---
+          if [ "$EXT" = "zip" ]; then
+            if command -v unzip >/dev/null 2>&1; then
+              unzip -qo "${TMP_DIR}/${ARCHIVE}" -d "${TMP_DIR}"
+            else
+              WIN_ARCHIVE="${TMP_DIR}/${ARCHIVE}"
+              WIN_DEST="${TMP_DIR}"
+              if command -v cygpath >/dev/null 2>&1; then
+                WIN_ARCHIVE="$(cygpath -w "${TMP_DIR}/${ARCHIVE}")"
+                WIN_DEST="$(cygpath -w "${TMP_DIR}")"
+              fi
+              if command -v 7z >/dev/null 2>&1; then
+                7z x -y "$WIN_ARCHIVE" -o"$WIN_DEST" >/dev/null
+              elif [ -n "${SYSTEMROOT:-}" ] && [ -x "${SYSTEMROOT}/System32/tar.exe" ]; then
+                "${SYSTEMROOT}/System32/tar.exe" -xf "$WIN_ARCHIVE" -C "$WIN_DEST"
+              else
+                echo "::error::No tool available to extract zip archive (tried unzip, 7z, tar.exe)"
+                exit 1
+              fi
+            fi
+          else
+            tar -xzf "${TMP_DIR}/${ARCHIVE}" -C "${TMP_DIR}" spectest
+          fi
+
+          chmod +x "${TMP_DIR}/${EXEC_NAME}" 2>/dev/null || true
+          mkdir -p "$CACHE_DIR"
+          mv "${TMP_DIR}/${EXEC_NAME}" "${CACHE_DIR}/${EXEC_NAME}"
+
+          TARGET_PATH="${CACHE_DIR}"
+          if [ "$OS" = "windows" ] && command -v cygpath >/dev/null 2>&1; then
+            TARGET_PATH="$(cygpath -w "${CACHE_DIR}")"
+          fi
+          echo "${TARGET_PATH}" >> "$GITHUB_PATH"
+          echo "spectest_path=${TARGET_PATH}" >> "$GITHUB_OUTPUT"
+          echo "SpecTest ${VERSION} installed successfully."
         fi
 
-        mkdir -p "${{ inputs.report_dir }}"
+        # --- Validate and configure Cloud LLM credentials ---
+        if [ -n "$IN_PROVIDER" ] || [ -n "$IN_API_KEY" ] || [ -n "$IN_MODEL" ] || [ -n "$IN_ENDPOINT" ]; then
+          missing=()
+          [ -z "$IN_PROVIDER" ] && missing+=("provider")
+          [ -z "$IN_API_KEY" ]  && missing+=("api_key")
+          [ -z "$IN_MODEL" ]    && missing+=("model")
+          [ -z "$IN_ENDPOINT" ] && missing+=("endpoint")
 
-        echo "Running: $CMD"
-        rc=0
-        eval "$CMD" || rc=$?
+          if [ ${#missing[@]} -gt 0 ]; then
+            missing_str="${missing[*]}"
+            echo "::error::Incomplete Cloud LLM configuration. Missing required field(s): ${missing_str// /, }"
+            exit 1
+          fi
 
-        echo "junit_report=${{ inputs.report_dir }}/junit.xml" >> "$GITHUB_OUTPUT"
-        echo "html_report=${{ inputs.report_dir }}/report.html" >> "$GITHUB_OUTPUT"
+          printf '::add-mask::%s\n' "$IN_API_KEY"
+          echo "SPECTEST_PROVIDER=$IN_PROVIDER" >> "$GITHUB_ENV"
+          echo "SPECTEST_API_KEY=$IN_API_KEY" >> "$GITHUB_ENV"
+          echo "SPECTEST_MODEL=$IN_MODEL" >> "$GITHUB_ENV"
+          echo "SPECTEST_ENDPOINT=$IN_ENDPOINT" >> "$GITHUB_ENV"
 
-        if [ $rc -eq 0 ]; then
-          echo "test_status=success" >> "$GITHUB_OUTPUT"
-          echo "All tests passed successfully!"
-        else
-          echo "test_status=failure" >> "$GITHUB_OUTPUT"
-          echo "Test execution completed with failures (exit code: $rc)."
-          exit $rc
+          CRED_DIR="${HOME}/.spectest"
+          mkdir -p "$CRED_DIR"
+          chmod 700 "$CRED_DIR" 2>/dev/null || true
+          tee "${CRED_DIR}/credentials.yaml" > /dev/null <<EOF
+default_provider: "${IN_PROVIDER}"
+providers:
+  ${IN_PROVIDER}:
+    api_key: "${IN_API_KEY}"
+    model: "${IN_MODEL}"
+    endpoint: "${IN_ENDPOINT}"
+EOF
+          chmod 600 "${CRED_DIR}/credentials.yaml" 2>/dev/null || true
+          echo "Successfully configured Cloud LLM provider '${IN_PROVIDER}' (model: ${IN_MODEL})."
         fi

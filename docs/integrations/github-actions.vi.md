@@ -1,21 +1,25 @@
 # Tích hợp GitHub Actions
 
-SpecTest cung cấp sẵn một **Composite GitHub Action** chuẩn mực ([action.yml](file:///home/tin/Project/current/spectest/action.yml)), chạy trực tiếp trong GitHub Actions workflows trên các runner Linux và macOS (`amd64` và `arm64`).
+SpecTest cung cấp **Setup Composite Action** (`action.yml`) chính thức giúp tự động tải, kiểm tra mã băm SHA-256, lưu bộ nhớ đệm (cache), cài đặt binary `spectest` CLI vào `$PATH`, đồng thời tự động cấu hình chứng chỉ LLM trên mọi runner Linux, macOS, và Windows (`amd64` và `arm64`).
 
 ---
 
-## Mẫu Workflow Hoàn chỉnh
+## Ví dụ 1: Chạy kiểm thử & Đẩy báo cáo SARIF lên GitHub Code Scanning
 
 Tạo file `.github/workflows/api-tests.yml`:
 
 ```yaml
-name: API Regression & Contract Quality Gate
+name: API Regression & Quality Gate
 
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
+  security-events: write # Bắt buộc để tải SARIF lên tab Code Scanning
 
 jobs:
   spectest:
@@ -25,70 +29,96 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Execute SpecTest API Suite
+      - name: Setup SpecTest-AI & Configure LLM
         uses: nguyentin05/spectest@v1
         with:
-          test_file: "tests/spectest.yaml"
-          target_url: "http://localhost:8080"
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          report_dir: "reports"
+          version: "latest"
+          provider: "gemini"
+          api_key: ${{ secrets.GEMINI_API_KEY }}
+          model: "gemini-2.5-pro"
+          endpoint: "https://generativelanguage.googleapis.com/v1beta"
 
-      - name: Publish Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v2
+      - name: Execute SpecTest Suite
+        run: |
+          mkdir -p reports
+          spectest run \
+            -f tests/spectest.yaml \
+            -t http://localhost:8080 \
+            --report-dir reports \
+            --sarif reports/spectest.sarif
+
+      - name: Upload Test Reports
         if: always()
-        with:
-          files: "reports/junit.xml"
-
-      - name: Upload HTML Test Report
         uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: spectest-report
+          name: spectest-reports
           path: reports/
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/spectest.sarif
 ```
 
 ---
 
-## Bảng Tham chiếu Inputs
+## Ví dụ 2: AI Tự động cập nhật test case khi có PR thay đổi OpenAPI
+
+SpecTest có thể tự động đồng bộ hóa các kịch bản kiểm thử khi tài liệu OpenAPI thay đổi:
+
+```yaml
+name: Auto-Sync Test Suite
+
+on:
+  pull_request:
+    paths:
+      - 'openapi/**'
+
+jobs:
+  update-suite:
+    name: Update Tests from OpenAPI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Setup SpecTest-AI & Configure LLM
+        uses: nguyentin05/spectest@v1
+        with:
+          provider: "openai"
+          api_key: ${{ secrets.OPENAI_API_KEY }}
+          model: "gpt-4o-mini"
+          endpoint: "https://api.openai.com/v1"
+
+      - name: Generate updated scenarios
+        run: |
+          spectest generate -f tests/spectest.yaml -a openapi/api.yaml
+
+      - name: Commit updated tests back to PR
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(test): auto-update spectest.yaml from OpenAPI spec changes"
+          file_pattern: "tests/spectest.yaml tests/spectest.log.yaml"
+```
+
+---
+
+## Bảng Tham chiếu Action
+
+### Inputs
 
 | Input | Bắt buộc | Mặc định | Mô tả |
 | :--- | :--- | :--- | :--- |
-| `version` | Không | `"latest"` | Phiên bản binary SpecTest cần cài đặt (ví dụ `'v1.0.0'` hoặc `'latest'`). |
-| `test_file` | Không | `"tests/spectest.yaml"` | Đường dẫn tới file suite YAML trong repo của bạn. |
-| `target_url` | Không | `""` | URL API mục tiêu. Ghi đè target mặc định. |
-| `compose_file` | Không | `""` | Đường dẫn tới `docker-compose.yml` để tự động bật/tắt dịch vụ backend. |
-| `gemini_api_key`| Không | `""` | Google Gemini API key để tự động phân tích nguyên nhân lỗi (AI Defect Triage). |
-| `openai_api_key`| Không | `""` | API key thay thế cho OpenAI. |
-| `report_dir` | Không | `"reports"` | Thư mục lưu các báo cáo kiểm thử (`junit.xml` và `report.html`). |
+| `version` | Không | `"latest"` | Phiên bản binary SpecTest cần cài đặt (ví dụ `'v0.2.0'` hoặc `'latest'`). |
+| `provider` | Không | `""` | Nhà cung cấp LLM để generate và triage lỗi (`gemini`, `openai`, `anthropic`, `ollama`). |
+| `api_key` | Không | `""` | API key của LLM. Truyền qua `secrets.*` (tự động mask trên log CI). |
+| `model` | Không | `""` | Tên model LLM mặc định (ví dụ `'gpt-4o-mini'`, `'gemini-2.5-pro'`, `'qwen2.5-coder:7b'`). |
+| `endpoint` | Không | `""` | URL endpoint tùy chỉnh (ví dụ `'http://localhost:11434'` khi dùng Ollama tự host). |
 
----
-
-## Bảng Tham chiếu Outputs
+### Outputs
 
 | Output | Mô tả |
 | :--- | :--- |
-| `junit_report` | Đường dẫn tới file JUnit XML được sinh ra (`reports/junit.xml`). |
-| `html_report` | Đường dẫn tới file báo cáo HTML dashboard (`reports/report.html`). |
-| `test_status` | Trạng thái thực thi cuối cùng: `'success'` hoặc `'failure'`. |
-
----
-
-## Kiểm thử Đa Container với Docker Compose trong CI
-
-Nếu backend của bạn cần cơ sở dữ liệu (PostgreSQL, MongoDB, Redis) và các container phụ trợ:
-
-```yaml
-      - name: Run SpecTest with Auto Docker Lifecycle
-        uses: nguyentin05/spectest@v1
-        with:
-          test_file: "tests/spectest.yaml"
-          compose_file: "docker-compose.test.yml"
-          target_url: "http://localhost:8080"
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-```
-
-SpecTest sẽ tự động:
-1. Khởi động tất cả container qua `docker compose up -d`.
-2. Thăm dò cho tới khi endpoint API phản hồi khỏe mạnh.
-3. Chạy toàn bộ kịch bản kiểm thử và phân tích lỗi bằng AI nếu có.
-4. Đảm bảo dọn dẹp sạch sẽ (`docker compose down -v`) khi workflow kết thúc hoặc bị hủy.
+| `version` | Phiên bản semver chính thức của SpecTest đã được cài đặt (ví dụ `'v0.2.0'`). |
+| `spectest_path` | Đường dẫn tuyệt đối tới thư mục chứa file thực thi đã được đưa vào PATH. |

@@ -224,7 +224,8 @@ func TestRunCmd_ScenarioFailure(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	reportDir := filepath.Join(tmpDir, "reports")
-	cmd.SetArgs([]string{"-f", suitePath, "-t", srv.URL, "--report-dir", reportDir})
+	sarifPath := filepath.Join(tmpDir, "reports", "spectest.sarif")
+	cmd.SetArgs([]string{"-f", suitePath, "-t", srv.URL, "--report-dir", reportDir, "--sarif", sarifPath})
 
 	err = cmd.Execute()
 	if err == nil {
@@ -234,6 +235,14 @@ func TestRunCmd_ScenarioFailure(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "FAIL: expected HTTP status 200, got 500") {
 		t.Errorf("expected fail reason in output, got:\n%s", got)
+	}
+
+	sarifBytes, err := os.ReadFile(sarifPath)
+	if err != nil {
+		t.Fatalf("failed to read generated sarif file: %v", err)
+	}
+	if !strings.Contains(string(sarifBytes), "SPECTEST-001") {
+		t.Errorf("expected SPECTEST-001 in sarif output: %s", string(sarifBytes))
 	}
 }
 
