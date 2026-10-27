@@ -260,6 +260,20 @@ func BuildUpdatePlan(
 				}
 			}
 
+			// If any setup this scenario depends on was repaired, this scenario also needs repair
+			if !incompatible {
+				dag, err := ucrun.ResolveSetupDAG(sc.Setup, suite.Setup)
+				if err == nil {
+					for _, dep := range dag {
+						if repairedSetups[dep] {
+							incompatible = true
+							reason = fmt.Sprintf("depends on repaired setup %q", dep)
+							break
+						}
+					}
+				}
+			}
+
 			if incompatible {
 				if sc.Locked {
 					return nil, fmt.Errorf("locked scenario %q requires update due to incompatible API contract change", scID)
@@ -291,10 +305,11 @@ func BuildUpdatePlan(
 		})
 	}
 
-	// Deterministic sort: Kind, SetupName, ScenarioID, APIKeys
+	// Deterministic sort: Kind priority (Setups before Scenarios), SetupName, ScenarioID, APIKeys
 	sort.SliceStable(actions, func(i, j int) bool {
-		if actions[i].Kind != actions[j].Kind {
-			return actions[i].Kind < actions[j].Kind
+		ri, rj := actionKindRank(actions[i].Kind), actionKindRank(actions[j].Kind)
+		if ri != rj {
+			return ri < rj
 		}
 		if actions[i].SetupName != actions[j].SetupName {
 			return actions[i].SetupName < actions[j].SetupName
@@ -306,4 +321,21 @@ func BuildUpdatePlan(
 	})
 
 	return actions, nil
+}
+
+func actionKindRank(k ActionKind) int {
+	switch k {
+	case ActionRemoveToolSkip:
+		return 1
+	case ActionRepairSetup:
+		return 2
+	case ActionRepairScenario:
+		return 3
+	case ActionCreateScenario:
+		return 4
+	case ActionAddToolSkip:
+		return 5
+	default:
+		return 99
+	}
 }

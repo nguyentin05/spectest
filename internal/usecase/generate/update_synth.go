@@ -146,8 +146,22 @@ func (g *Generator) repairSetup(
 		return domain.Setup{}, fmt.Errorf("build prompt: %w", err)
 	}
 
-	out, err := callValidated(ctx, g.llm, "repair setup "+act.SetupName, setupSystemPrompt, user,
+	out, err := callValidated(ctx, g.llm, "repair setup "+act.SetupName, updateSetupSystemPrompt, user,
 		func(v *synthesizedSetup) error {
+			setupNames := append([]string(nil), orig.Use...)
+			for k, val := range v.Vars {
+				v.Vars[k] = sanitizeSetupTemplates(val, setupNames)
+			}
+			for idx := range v.Steps {
+				v.Steps[idx] = sanitizeStep(v.Steps[idx], "", serverSet)
+				v.Steps[idx].Body = sanitizeSetupTemplates(v.Steps[idx].Body, setupNames)
+				if v.Steps[idx].Headers != nil {
+					for hk, hv := range v.Steps[idx].Headers {
+						v.Steps[idx].Headers[hk] = sanitizeSetupTemplates(hv, setupNames).(string)
+					}
+				}
+			}
+
 			var errs []error
 			for k, val := range v.Vars {
 				errs = append(errs, checkTemplates(parent, bareIdx,
@@ -240,7 +254,7 @@ func (g *Generator) repairScenario(
 			ID:      orig.ID,
 			Name:    orig.Name,
 			Setup:   orig.Setup,
-			Purpose: fmt.Sprintf("Repair scenario %s for updated API contracts", orig.ID),
+			Purpose: fmt.Sprintf("Repair scenario %s for updated API contracts. Reason: %s", orig.ID, act.Reason),
 			APIs:    act.APIKeys,
 		},
 		SetupClosure: promptRefsFrom(closure),
@@ -259,12 +273,26 @@ func (g *Generator) repairScenario(
 		return domain.Scenario{}, fmt.Errorf("build prompt: %w", err)
 	}
 
-	out, err := callValidated(ctx, g.llm, "repair scenario "+orig.ID, scenarioSystemPrompt, user,
+	out, err := callValidated(ctx, g.llm, "repair scenario "+orig.ID, updateScenarioSystemPrompt, user,
 		func(v *synthesizedBatch) error {
 			if len(v.Scenarios) != 1 {
 				return fmt.Errorf("expected 1 scenario in repair response, got %d", len(v.Scenarios))
 			}
-			sc := v.Scenarios[0]
+			sc := &v.Scenarios[0]
+			setupNames := append([]string(nil), orig.Setup...)
+			for _, c := range closure {
+				setupNames = append(setupNames, c.Name)
+			}
+			for idx := range sc.Steps {
+				sc.Steps[idx] = sanitizeStep(sc.Steps[idx], "", serverSet)
+				sc.Steps[idx].Body = sanitizeSetupTemplates(sc.Steps[idx].Body, setupNames)
+				if sc.Steps[idx].Headers != nil {
+					for hk, hv := range sc.Steps[idx].Headers {
+						sc.Steps[idx].Headers[hk] = sanitizeSetupTemplates(hv, setupNames).(string)
+					}
+				}
+			}
+
 			stepErrs, _ := validateStepsDeep("scenario "+orig.ID, sc.Steps, allowed, serverSet, parent, bareIdx)
 			if len(stepErrs) > 0 {
 				return errors.Join(stepErrs...)
@@ -349,7 +377,7 @@ func (g *Generator) createScenarios(
 			return nil, fmt.Errorf("build prompt: %w", err)
 		}
 
-		out, err := callValidated(ctx, g.llm, "create scenario "+scID, scenarioSystemPrompt, user,
+		out, err := callValidated(ctx, g.llm, "create scenario "+scID, updateScenarioSystemPrompt, user,
 			func(v *synthesizedBatch) error {
 				if len(v.Scenarios) != 1 {
 					return fmt.Errorf("expected 1 scenario in create response, got %d", len(v.Scenarios))
@@ -383,4 +411,35 @@ func (g *Generator) createScenarios(
 	}
 
 	return newScenarios, nil
+}
+
+func sanitizeSetupTemplates(v any, setupNames []string) any {
+	if len(setupNames) == 0 || v == nil {
+		return v
+	}
+	switch val := v.(type) {
+	case string:
+		res := val
+		for _, sName := range setupNames {
+			prefix := "{{" + sName + "."
+			if strings.Contains(res, prefix) {
+				res = strings.ReplaceAll(res, prefix, "{{")
+			}
+		}
+		return res
+	case map[string]any:
+		res := make(map[string]any, len(val))
+		for k, inner := range val {
+			res[k] = sanitizeSetupTemplates(inner, setupNames)
+		}
+		return res
+	case []any:
+		res := make([]any, len(val))
+		for i, inner := range val {
+			res[i] = sanitizeSetupTemplates(inner, setupNames)
+		}
+		return res
+	default:
+		return v
+	}
 }
