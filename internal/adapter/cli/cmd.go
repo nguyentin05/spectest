@@ -14,6 +14,7 @@ import (
 	"github.com/nguyentin05/spectest/internal/adapter/cli/cmdutil"
 	"github.com/nguyentin05/spectest/internal/adapter/cli/config"
 	"github.com/nguyentin05/spectest/internal/adapter/cli/generate"
+	climcp "github.com/nguyentin05/spectest/internal/adapter/cli/mcp"
 	"github.com/nguyentin05/spectest/internal/adapter/cli/run"
 	"github.com/nguyentin05/spectest/internal/adapter/cli/ui"
 	"github.com/nguyentin05/spectest/internal/platform/buildinfo"
@@ -68,6 +69,7 @@ and are not implemented yet.`,
 	spectestCmd.AddCommand(run.NewCommand(f))
 	spectestCmd.AddCommand(config.NewCommand(f))
 	spectestCmd.AddCommand(ui.NewCommand(f))
+	spectestCmd.AddCommand(climcp.NewCommand())
 
 	return spectestCmd
 }

@@ -17,16 +17,21 @@ type validationOptions struct {
 	WarnUncovered    bool
 }
 
-type validationResult struct {
+type ValidationResult struct {
 	Errors   []error
 	Warnings []string
 }
 
-func (r validationResult) Err() error {
+func (r ValidationResult) Err() error {
 	if len(r.Errors) == 0 {
 		return nil
 	}
 	return errors.Join(r.Errors...)
+}
+
+// ValidateSuite runs the full v1 rule set on a suite.
+func ValidateSuite(s *domain.Suite, src *domain.SourceSet) ValidationResult {
+	return validateSuite(s, src, validationOptions{})
 }
 
 var (
@@ -39,8 +44,8 @@ var (
 )
 
 // validateSuite runs the full v1 rule set.
-func validateSuite(s *domain.Suite, src *domain.SourceSet, opts validationOptions) validationResult {
-	var res validationResult
+func validateSuite(s *domain.Suite, src *domain.SourceSet, opts validationOptions) ValidationResult {
+	var res ValidationResult
 	if s == nil {
 		res.Errors = append(res.Errors, fmt.Errorf("suite is nil"))
 		return res
@@ -178,11 +183,13 @@ func validateSetupGraph(s *domain.Suite) []error {
 // ============================================================================
 
 func buildAPILookup(s *domain.Suite, src *domain.SourceSet, allowStale bool) map[string]domain.API {
-	out := make(map[string]domain.API, len(src.APIs))
-	for _, a := range src.APIs {
-		out[a.Key] = a
+	out := make(map[string]domain.API)
+	if src != nil {
+		for _, a := range src.APIs {
+			out[a.Key] = a
+		}
 	}
-	if allowStale {
+	if allowStale || src == nil {
 		for _, key := range s.APIs {
 			if _, ok := out[key]; ok {
 				continue
@@ -707,7 +714,7 @@ func validateCoverage(
 		}
 	}
 
-	if opts.WarnUncovered {
+	if opts.WarnUncovered && src != nil {
 		for _, a := range src.APIs {
 			if _, ok := covered[a.Key]; !ok {
 				warns = append(warns, fmt.Sprintf("api %q is not covered by any active scenario", a.Key))

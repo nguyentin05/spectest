@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+// RedactPayload parses a JSON string (object or array) and masks sensitive fields.
+func RedactPayload(raw string) string {
+	return redactPayload(raw)
+}
+
 // redactPayload parses a JSON string (object or array) and masks sensitive fields.
 func redactPayload(raw string) string {
 	trimmed := strings.TrimSpace(raw)
