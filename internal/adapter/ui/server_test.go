@@ -169,6 +169,58 @@ func TestServer_Config(t *testing.T) {
 	}
 }
 
+func TestServer_TestLLMUsesJSONModePrompt(t *testing.T) {
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			ResponseFormat struct {
+				Type string `json:"type"`
+			} `json:"response_format"`
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode LLM request: %v", err)
+		} else {
+			if request.ResponseFormat.Type != "json_object" {
+				t.Errorf("response format = %q, want json_object", request.ResponseFormat.Type)
+			}
+			if len(request.Messages) == 0 || !strings.Contains(strings.ToLower(request.Messages[0].Content), "json") {
+				t.Errorf("system prompt must request JSON output, got %+v", request.Messages)
+			}
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"status\":\"ok\"}"}}]}`))
+	}))
+	defer llmServer.Close()
+
+	srv, _, _ := newTestServer(t)
+	payload, err := json.Marshal(testLLMRequest{
+		Provider: "openai",
+		Model:    "test-model",
+		Endpoint: llmServer.URL,
+		APIKey:   "test-key",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/config/test", bytes.NewReader(payload))
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("test LLM status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var response struct {
+		Success bool `json:"success"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.Success {
+		t.Fatalf("LLM connection check failed: %s", rec.Body.String())
+	}
+}
+
 func TestServer_TargetHealthCheck(t *testing.T) {
 	// Start mock target server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

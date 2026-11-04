@@ -494,7 +494,7 @@ func checkBodyValue(owner string, idx int, val any, schema domain.Schema, top bo
 
 	case "integer":
 		switch v := val.(type) {
-		case int, int32, int64:
+		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, uintptr:
 			// ok
 		case float64:
 			if v != float64(int64(v)) {
@@ -506,7 +506,7 @@ func checkBodyValue(owner string, idx int, val any, schema domain.Schema, top bo
 
 	case "number":
 		switch val.(type) {
-		case int, int32, int64, float32, float64:
+		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, uintptr, float32, float64:
 			// ok
 		default:
 			errs = append(errs, fmt.Errorf("%s: step %d: body type mismatch: expected number, got %T", owner, idx, val))

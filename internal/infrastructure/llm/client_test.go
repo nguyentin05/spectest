@@ -63,6 +63,10 @@ func TestClient_GenerateStructured_Success(t *testing.T) {
 	if gotBody["model"] != "test-model" {
 		t.Errorf("request model = %v", gotBody["model"])
 	}
+	responseFormat, ok := gotBody["response_format"].(map[string]any)
+	if !ok || responseFormat["type"] != "json_object" {
+		t.Errorf("response_format = %v, want JSON object mode", gotBody["response_format"])
+	}
 	msgs, _ := gotBody["messages"].([]any)
 	if len(msgs) != 2 {
 		t.Errorf("expected system + user messages, got %d", len(msgs))

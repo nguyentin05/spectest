@@ -168,7 +168,7 @@ func (s *Server) handleTestLLM(w http.ResponseWriter, r *http.Request) {
 
 	client := llm.NewClient(prov, endpoint, key, model)
 	// Send lightweight ping prompt
-	_, err := client.GenerateStructured(ctx, "Reply with 'OK' if you can read this.", "ping", nil)
+	_, err := client.GenerateStructured(ctx, `Reply with a JSON object containing a status field set to "ok".`, "ping", nil)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"success": false,

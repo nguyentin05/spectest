@@ -129,6 +129,9 @@ func (c *Client) doRequest(ctx context.Context, systemPrompt, userPrompt string)
 			{"role": "user", "content": userPrompt},
 		},
 		"temperature": 0.1,
+		"response_format": map[string]string{
+			"type": "json_object",
+		},
 	}
 
 	bodyBytes, err := json.Marshal(reqPayload)
@@ -241,7 +244,7 @@ func backoffDelay(attempt int, retryAfter time.Duration) time.Duration {
 		}
 		return retryAfter
 	}
-	d := min(baseBackoff << (attempt - 1), maxBackoff)
+	d := min(baseBackoff<<(attempt-1), maxBackoff)
 	jitterRange := d / 4
 	if jitterRange <= 0 {
 		return d

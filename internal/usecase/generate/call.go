@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -125,9 +126,13 @@ func decodeAndValidate[T any](raw string, validate func(T) error) (T, error) {
 func decodeStrictJSON(data []byte, out any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
+	dec.UseNumber()
 
 	if err := dec.Decode(out); err != nil {
 		return err
+	}
+	if err := normalizeJSONNumbers(reflect.ValueOf(out)); err != nil {
+		return fmt.Errorf("normalize JSON numbers: %w", err)
 	}
 	var extra json.RawMessage
 	if err := dec.Decode(&extra); err == nil {
@@ -136,6 +141,88 @@ func decodeStrictJSON(data []byte, out any) error {
 		return fmt.Errorf("trailing data: %w", err)
 	}
 	return nil
+}
+
+// normalizeJSONNumbers restores integer types for numbers decoded into dynamic fields.
+func normalizeJSONNumbers(value reflect.Value) error {
+	if !value.IsValid() {
+		return nil
+	}
+
+	switch value.Kind() {
+	case reflect.Interface:
+		if value.IsNil() {
+			return nil
+		}
+		dynamic := value.Elem()
+		if dynamic.Type() == reflect.TypeOf(json.Number("")) {
+			normalized, err := parseJSONNumber(dynamic.Interface().(json.Number))
+			if err != nil {
+				return err
+			}
+			value.Set(reflect.ValueOf(normalized))
+			return nil
+		}
+		normalized := reflect.New(dynamic.Type()).Elem()
+		normalized.Set(dynamic)
+		if err := normalizeJSONNumbers(normalized); err != nil {
+			return err
+		}
+		value.Set(normalized)
+	case reflect.Pointer:
+		if !value.IsNil() {
+			return normalizeJSONNumbers(value.Elem())
+		}
+	case reflect.Map:
+		if value.IsNil() {
+			return nil
+		}
+		normalized := reflect.MakeMapWithSize(value.Type(), value.Len())
+		iter := value.MapRange()
+		for iter.Next() {
+			item := reflect.New(value.Type().Elem()).Elem()
+			item.Set(iter.Value())
+			if err := normalizeJSONNumbers(item); err != nil {
+				return err
+			}
+			normalized.SetMapIndex(iter.Key(), item)
+		}
+		value.Set(normalized)
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < value.Len(); i++ {
+			if err := normalizeJSONNumbers(value.Index(i)); err != nil {
+				return err
+			}
+		}
+	case reflect.Struct:
+		for i := 0; i < value.NumField(); i++ {
+			field := value.Field(i)
+			if field.CanSet() {
+				if err := normalizeJSONNumbers(field); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func parseJSONNumber(number json.Number) (any, error) {
+	raw := number.String()
+	if !strings.ContainsAny(raw, ".eE") {
+		if parsed, err := strconv.ParseInt(raw, 10, strconv.IntSize); err == nil {
+			return int(parsed), nil
+		}
+		if parsed, err := strconv.ParseUint(raw, 10, strconv.IntSize); err == nil {
+			return uint(parsed), nil
+		}
+		return nil, fmt.Errorf("integer %q is outside the supported range", raw)
+	}
+	parsed, err := number.Float64()
+	if err != nil {
+		return nil, fmt.Errorf("number %q is outside the supported range: %w", raw, err)
+	}
+	return parsed, nil
 }
 
 func buildRepairPrompt(system, user, previous string, validationErr error) (string, string) {
